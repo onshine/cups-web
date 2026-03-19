@@ -13,18 +13,18 @@
 <table>
   <tr>
     <td align="center">
-      <img src="screenshots/login.png" width="400" alt="登录认证"><br/>
-      <b>登录认证</b>
+      <img src="screenshots/print1.png" width="400" alt="打印1"><br/>
+      <b>文件上传</b>
     </td>
     <td align="center">
-      <img src="screenshots/print1.png" width="400" alt="打印机列表"><br/>
-      <b>打印机列表</b>
+      <img src="screenshots/print2.png" width="400" alt="打印2"><br/>
+      <b>打印机</b>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="screenshots/print2.png" width="400" alt="文件上传"><br/>
-      <b>文件上传</b>
+      <img src="screenshots/preview.png" width="400" alt="预览"><br/>
+      <b>预览</b>
     </td>
     <td align="center">
       <img src="screenshots/admin.png" width="400" alt="管理后台"><br/>
