@@ -576,9 +576,27 @@ function markerBarColor(level) {
 }
 
 function validatePageRange() {
-  const val = pageRange.value.trim()
+  let val = pageRange.value.trim()
   if (!val) { pageRangeError.value = ''; return }
-  if (val.includes(',')) { pageRangeError.value = '不支持逗号，请用空格分隔'; return }
+  
+  // 自动修正：
+  // 1. 将全角减号、破折号等转换为半角减号
+  // 2. 移除减号前后的空格（如 "1 - 5" → "1-5"）
+  // 3. 将逗号转换为空格
+  // 4. 合并多个空格
+  const normalizedVal = val
+    .replace(/[－—–―]/g, '-')  // 全角减号、破折号、短破折号、水平线
+    .replace(/\s*-\s*/g, '-')   // 移除减号前后的空格
+    .replace(/[，,]/g, ' ')     // 将逗号（全角/半角）转换为空格
+    .replace(/\s+/g, ' ')       // 合并多个空格
+    .trim()
+  
+  // 如果修正后的值与原值不同，自动更新输入框
+  if (normalizedVal !== val) {
+    pageRange.value = normalizedVal
+    val = normalizedVal
+  }
+  
   const pattern = /^(\d+(-\d+)?)(\s+\d+(-\d+)?)*$/
   pageRangeError.value = pattern.test(val) ? '' : '格式无效，例如：1-5 8 10-12'
 }
