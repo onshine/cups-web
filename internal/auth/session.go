@@ -1,11 +1,14 @@
 package auth
 
 import (
+	"context"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"net/http"
-	"os"
 	"time"
+
+	"cups-web/internal/store"
 
 	"github.com/gorilla/securecookie"
 )
@@ -15,21 +18,63 @@ var s *securecookie.SecureCookie
 const sessionCookieName = "session"
 const csrfCookieName = "csrf_token"
 
-func SetupSecureCookie(hashKeyEnv, blockKeyEnv string) {
-	hashKey := decodeKey(hashKeyEnv, 32)
-	blockKey := decodeKey(blockKeyEnv, 32)
-	s = securecookie.New(hashKey, blockKey)
-}
+const (
+	settingHashKey  = "session_hash_key"
+	settingBlockKey = "session_block_key"
+)
 
-func decodeKey(env string, size int) []byte {
-	if env == "" {
-		return securecookie.GenerateRandomKey(size)
+func SetupSecureCookie(db *sql.DB) error {
+	ctx := context.Background()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
 	}
-	key, err := base64.StdEncoding.DecodeString(env)
-	if err == nil && len(key) > 0 {
-		return key
+	defer tx.Rollback()
+
+	hashKeyStr, err := store.GetSettingString(ctx, tx, settingHashKey, "")
+	if err != nil {
+		return err
 	}
-	return []byte(env)
+	blockKeyStr, err := store.GetSettingString(ctx, tx, settingBlockKey, "")
+	if err != nil {
+		return err
+	}
+
+	var hashKey, blockKey []byte
+
+	if hashKeyStr == "" {
+		hashKey = securecookie.GenerateRandomKey(32)
+		hashKeyStr = base64.StdEncoding.EncodeToString(hashKey)
+		if err := store.SetSettingString(ctx, tx, settingHashKey, hashKeyStr); err != nil {
+			return err
+		}
+	} else {
+		hashKey, _ = base64.StdEncoding.DecodeString(hashKeyStr)
+		if len(hashKey) == 0 {
+			hashKey = []byte(hashKeyStr)
+		}
+	}
+
+	if blockKeyStr == "" {
+		blockKey = securecookie.GenerateRandomKey(32)
+		blockKeyStr = base64.StdEncoding.EncodeToString(blockKey)
+		if err := store.SetSettingString(ctx, tx, settingBlockKey, blockKeyStr); err != nil {
+			return err
+		}
+	} else {
+		blockKey, _ = base64.StdEncoding.DecodeString(blockKeyStr)
+		if len(blockKey) == 0 {
+			blockKey = []byte(blockKeyStr)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	s = securecookie.New(hashKey, blockKey)
+	return nil
 }
 
 type Session struct {
@@ -52,7 +97,7 @@ func SetSession(w http.ResponseWriter, sess Session) error {
 		Value:    encoded,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   os.Getenv("SESSION_SECURE") == "true",
+		Secure:   false,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400,
 	}
@@ -66,7 +111,7 @@ func ClearSession(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   os.Getenv("SESSION_SECURE") == "true",
+		Secure:   false,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	}

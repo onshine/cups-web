@@ -60,17 +60,27 @@
 - **密码加密**：使用 bcrypt 加密存储用户密码
 
 ### 部署优势
-- **Docker 一键部署**：使用 Docker Compose 快速启动
+- **多种部署方式**：支持 Docker 一键部署或二进制文件直接运行
 - **数据持久化**：数据库和上传文件独立存储
 - **易于维护**：简洁的配置和管理界面
+- **跨平台支持**：提供 Linux、macOS、Windows 多平台二进制文件
 
 ## 🛠️ 技术栈
 
 - **打印服务**: [CUPS](https://github.com/OpenPrinting/cups)
 - **后端**: Go
-- **前端**: Vue.js
+- **前端**: Vue.js 3 + Vite + Tailwind CSS + Nuxt UI
 
 ## 🚀 快速开始
+
+你可以选择以下两种方式部署：
+
+- [Docker 部署](#docker-部署)（推荐，简单易用）
+- [二进制部署](#二进制部署)（适用于已有 CUPS 服务的场景）
+
+---
+
+## Docker 部署
 
 ### 前置要求
 
@@ -109,9 +119,6 @@ services:
     image: docker.1ms.run/hanxi/cups-web:latest
     user: root
     environment:
-      - SESSION_HASH_KEY=${SESSION_HASH_KEY}
-      - SESSION_BLOCK_KEY=${SESSION_BLOCK_KEY}
-      - SESSION_SECURE=${SESSION_SECURE}
       - CUPS_HOST=cups:631
     volumes:
       - ./.data:/data
@@ -137,23 +144,6 @@ wget https://raw.githubusercontent.com/hanxi/cups-web/main/docker-compose.yml
 # CUPS 管理员账号（用于管理打印机）
 CUPSADMIN=admin
 CUPSPASSWORD=your_cups_password
-
-# Session 加密密钥（必须配置，用于保护用户会话）
-SESSION_HASH_KEY=your_hash_key_here
-SESSION_BLOCK_KEY=your_block_key_here
-
-# 如果使用 HTTPS，设置为 true
-SESSION_SECURE=false
-```
-
-**生成安全的密钥：**
-
-```bash
-# 生成 SESSION_HASH_KEY
-openssl rand -base64 32 | tr -d '\n'
-
-# 生成 SESSION_BLOCK_KEY
-openssl rand -base64 32 | tr -d '\n'
 ```
 
 ### 4. 启动服务
@@ -193,6 +183,79 @@ http://localhost:1180
 1. 使用管理员账号登录
 2. 在管理后台创建普通用户账号
 3. 用户即可登录并开始打印
+
+---
+
+## 二进制部署
+
+如果你已经有 CUPS 服务运行，可以直接下载二进制文件运行 Web 服务。
+
+### 前置要求
+
+- 已安装并运行 CUPS 服务
+- 可选：USB 打印机（如果使用本地打印机）
+
+### 1. 下载二进制文件
+
+从 [GitHub Releases](https://github.com/hanxi/cups-web/releases) 下载适合你平台的二进制文件：
+
+| 平台 | 架构 | 文件名 |
+|------|------|--------|
+| Linux | amd64 | `cups-web-linux-amd64` |
+| Linux | arm64 | `cups-web-linux-arm64` |
+| macOS | amd64 | `cups-web-darwin-amd64` |
+| macOS | arm64 | `cups-web-darwin-arm64` |
+| Windows | amd64 | `cups-web-windows-amd64.exe` |
+
+```bash
+# 示例：下载 Linux amd64 版本
+wget https://github.com/hanxi/cups-web/releases/download/master/cups-web-linux-amd64
+chmod +x cups-web-linux-amd64
+```
+
+### 2. 配置环境变量
+
+二进制文件不会自动加载 `.env` 文件，你需要手动设置环境变量：
+
+```bash
+# CUPS 服务地址（必填）
+export CUPS_HOST=localhost:631
+
+# 数据目录（可选，默认当前目录）
+export DB_PATH=./data/cups-web.db
+export UPLOAD_DIR=./uploads
+
+# 监听地址（可选，默认 :8080）
+export LISTEN_ADDR=:8080
+```
+
+或者使用 `env` 命令临时设置：
+
+```bash
+CUPS_HOST=localhost:631 DB_PATH=./data/cups-web.db ./cups-web-linux-amd64
+```
+
+### 3. 运行服务
+
+```bash
+./cups-web-linux-amd64
+```
+
+### 4. 访问 Web 界面
+
+打开浏览器访问：
+
+```
+http://localhost:8080
+```
+
+**默认管理员账号：**
+- 用户名：`admin`
+- 密码：`admin`
+
+**⚠️ 重要**：首次登录后请立即修改默认密码！
+
+---
 
 ## 📖 详细使用指南
 
@@ -283,9 +346,6 @@ http://localhost:1180
 | `DB_PATH` | SQLite 数据库文件路径 | `/data/cups-web.db` | 否 |
 | `UPLOAD_DIR` | 上传文件存储目录 | `/uploads` | 否 |
 | `CUPS_HOST` | CUPS 服务地址 | `localhost` | 否 |
-| `SESSION_HASH_KEY` | Session 加密哈希密钥 | - | **是** |
-| `SESSION_BLOCK_KEY` | Session 加密块密钥 | - | **是** |
-| `SESSION_SECURE` | 是否启用 HTTPS Cookie | `false` | 否 |
 
 #### CUPS 服务配置
 
@@ -320,12 +380,7 @@ services:
 
 ### 使用 HTTPS
 
-1. 在 `.env` 中设置：
-```bash
-SESSION_SECURE=true
-```
-
-2. 配置反向代理（如 Nginx）处理 HTTPS：
+配置反向代理（如 Nginx）处理 HTTPS：
 
 ```nginx
 server {
@@ -373,10 +428,8 @@ tar -czf cups-config-backup.tar.gz ./.etc/
 ### 安全建议
 
 1. **修改默认密码**：首次部署后立即修改 admin 账号密码
-2. **使用强密钥**：确保 `SESSION_HASH_KEY` 和 `SESSION_BLOCK_KEY` 足够随机和复杂
-3. **启用 HTTPS**：生产环境建议使用 HTTPS 保护数据传输
-4. **定期备份**：定期备份数据库和上传文件
-5. **限制访问**：使用防火墙限制只有授权 IP 可以访问
+2. **定期备份**：定期备份数据库和上传文件
+3. **限制访问**：使用防火墙限制只有授权 IP 可以访问
 
 ### 打印机驱动
 

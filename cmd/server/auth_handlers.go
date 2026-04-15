@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"os"
 
 	"cups-web/internal/auth"
 	"cups-web/internal/store"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -84,7 +84,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: false,
-		Secure:   os.Getenv("SESSION_SECURE") == "true",
+		Secure:   false,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400,
 	}
@@ -115,7 +115,7 @@ func CSRFHandler(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: false,
-		Secure:   os.Getenv("SESSION_SECURE") == "true",
+		Secure:   false,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   86400,
 	}

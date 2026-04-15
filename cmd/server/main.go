@@ -16,6 +16,7 @@ import (
 	"cups-web/internal/middleware"
 	"cups-web/internal/server"
 	"cups-web/internal/store"
+
 	"github.com/gorilla/mux"
 )
 
@@ -49,12 +50,9 @@ func main() {
 		log.Fatal("failed to create uploads dir: ", err)
 	}
 
-	hashKey := os.Getenv("SESSION_HASH_KEY")
-	blockKey := os.Getenv("SESSION_BLOCK_KEY")
-	if hashKey == "" || blockKey == "" {
-		log.Println("Warning: SESSION_HASH_KEY or SESSION_BLOCK_KEY not set; using generated keys (not recommended for production). Set them via environment variables to keep sessions stable.")
+	if err := auth.SetupSecureCookie(appStore.DB); err != nil {
+		log.Fatal("failed to setup secure cookie: ", err)
 	}
-	auth.SetupSecureCookie(hashKey, blockKey)
 
 	r := mux.NewRouter()
 
