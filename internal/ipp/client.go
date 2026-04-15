@@ -162,6 +162,7 @@ func SendPrintJob(printerURI string, r io.Reader, mime string, username string, 
 // paperSizeToIPP converts a paper size name to an IPP media keyword.
 func paperSizeToIPP(size string) string {
 	m := map[string]string{
+		"A5":     "iso_a5_148x210mm",
 		"A4":     "iso_a4_210x297mm",
 		"A3":     "iso_a3_297x420mm",
 		"A2":     "iso_a2_420x594mm",

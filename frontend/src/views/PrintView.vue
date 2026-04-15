@@ -462,6 +462,7 @@ const orientationItems = [
 ]
 
 const paperSizeItems = [
+  { label: 'A5 (148×210mm)', value: 'A5' },
   { label: 'A4 (210×297mm)', value: 'A4' },
   { label: 'A3 (297×420mm)', value: 'A3' },
   { label: 'A2 (420×594mm)', value: 'A2' },
