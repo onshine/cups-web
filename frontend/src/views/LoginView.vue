@@ -14,10 +14,9 @@
         icon="i-lucide-triangle-alert"
         color="error"
         variant="soft"
+        :title="error"
         class="mb-6"
-      >
-        {{ error }}
-      </UAlert>
+      />
       
       <UForm @submit="login" :state="state" class="space-y-6">
         <UFormField label="用户名" name="username" required>
@@ -67,7 +66,12 @@ async function login() {
       credentials: 'include'
     })
     if (!resp.ok) {
-      error.value = '登录失败'
+      try {
+        const data = await resp.json()
+        error.value = data.error || data.message || '用户名或密码错误'
+      } catch {
+        error.value = '用户名或密码错误'
+      }
       return
     }
     emit('login-success')
