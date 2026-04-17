@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 
@@ -128,6 +129,7 @@ func SendPrintJob(printerURI string, r io.Reader, mime string, username string, 
 	}
 	httpReq.Header.Set("Content-Type", goipp.ContentType)
 	httpReq.Header.Set("Accept", goipp.ContentType)
+	setBasicAuth(httpReq)
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if resp != nil {
@@ -231,6 +233,16 @@ type PrinterInfo struct {
 	MarkerColors    []string          `json:"markerColors"`
 	MediaReady      []string          `json:"mediaReady"`
 	Attributes      map[string]string `json:"attributes"`
+}
+
+// setBasicAuth adds HTTP Basic Authentication to the request if CUPSADMIN and
+// CUPSPASSWORD environment variables are set.
+func setBasicAuth(req *http.Request) {
+	user := os.Getenv("CUPSADMIN")
+	pass := os.Getenv("CUPSPASSWORD")
+	if user != "" && pass != "" {
+		req.SetBasicAuth(user, pass)
+	}
 }
 
 // httpToIppURI converts an http:// URI to ipp:// for use in IPP request attributes.
