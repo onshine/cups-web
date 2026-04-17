@@ -98,8 +98,8 @@ func convertImageToPDF(inputPath string, orientation string, paperSize string) (
 	} else {
 		// 使用自定义尺寸
 		pdf = gofpdf.NewCustom(&gofpdf.InitType{
-			UnitStr:    "mm",
-			Size:       customSize,
+			UnitStr:        "mm",
+			Size:           customSize,
 			OrientationStr: orientCode,
 		})
 	}

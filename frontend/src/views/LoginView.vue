@@ -1,5 +1,5 @@
 <template>
-  <div class="flex items-center justify-center h-full p-6">
+  <div class="flex items-center justify-center h-full p-3 sm:p-4 md:p-6">
     <UCard class="w-full max-w-md shadow-lg">
       <template #header>
         <h2 class="text-xl font-bold flex items-center gap-2">

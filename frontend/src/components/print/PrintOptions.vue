@@ -1,0 +1,208 @@
+<template>
+  <UCard>
+    <template #header>
+      <div class="flex items-center gap-2 font-semibold">
+        <UIcon name="i-lucide-settings-2" class="w-5 h-5" />
+        打印参数
+      </div>
+    </template>
+    <div class="space-y-4">
+      <!-- 第一行：颜色 + 方向（紧凑按钮组） -->
+      <div class="grid grid-cols-2 gap-3">
+        <UFormField label="颜色模式">
+          <div class="flex rounded-lg border border-muted overflow-hidden">
+            <label v-for="item in colorItems" :key="String(item.value)"
+              class="flex-1 flex items-center justify-center gap-1.5 py-2 px-2 cursor-pointer text-sm transition"
+              :class="isColor === item.value ? 'bg-primary text-white font-medium' : 'hover:bg-elevated'">
+              <input type="radio" :value="item.value" :checked="isColor === item.value" class="sr-only" @change="$emit('update:isColor', item.value)" />
+              <UIcon :name="item.icon" class="w-3.5 h-3.5 shrink-0" />
+              <span class="truncate text-xs">{{ item.label }}</span>
+            </label>
+          </div>
+        </UFormField>
+
+        <UFormField label="打印方向">
+          <div class="flex rounded-lg border border-muted overflow-hidden">
+            <label v-for="item in orientationItems" :key="item.value"
+              class="flex-1 flex items-center justify-center gap-1.5 py-2 px-2 cursor-pointer text-sm transition"
+              :class="orientation === item.value ? 'bg-primary text-white font-medium' : 'hover:bg-elevated'">
+              <input type="radio" :value="item.value" :checked="orientation === item.value" class="sr-only" @change="$emit('update:orientation', item.value)" />
+              <UIcon :name="item.icon" class="w-3.5 h-3.5 shrink-0" />
+              <span class="truncate text-xs">{{ item.label }}</span>
+            </label>
+          </div>
+        </UFormField>
+      </div>
+
+      <!-- 第二行：双面 + 份数 -->
+      <div class="grid grid-cols-2 gap-3">
+        <UFormField label="双面打印">
+          <USelect :model-value="duplex" :items="duplexItems" value-key="value" label-key="label" class="w-full" @update:model-value="$emit('update:duplex', $event)" />
+        </UFormField>
+
+        <UFormField label="份数">
+          <UInput
+            :model-value="copies"
+            type="number"
+            :min="1"
+            :max="99"
+            class="w-full"
+            @update:model-value="$emit('update:copies', Number($event))"
+          />
+        </UFormField>
+      </div>
+
+      <!-- 第三行：纸张大小 + 纸张类型 -->
+      <div class="grid grid-cols-2 gap-3">
+        <UFormField label="纸张大小">
+          <USelect :model-value="paperSize" :items="paperSizeItems" value-key="value" label-key="label" class="w-full" @update:model-value="$emit('update:paperSize', $event)" />
+        </UFormField>
+        <UFormField label="纸张类型">
+          <USelect :model-value="paperType" :items="paperTypeItems" value-key="value" label-key="label" class="w-full" @update:model-value="$emit('update:paperType', $event)" />
+        </UFormField>
+      </div>
+
+      <!-- 第四行：打印缩放 + 页面范围 -->
+      <div class="grid grid-cols-2 gap-3">
+        <UFormField label="缩放">
+          <USelect :model-value="printScaling" :items="scalingItems" value-key="value" label-key="label" class="w-full" @update:model-value="$emit('update:printScaling', $event)" />
+        </UFormField>
+        <UFormField label="页面范围" :hint="pageRangeError || '如：1-5 8'">
+          <UInput
+            :model-value="pageRange"
+            placeholder="留空=全部"
+            class="w-full"
+            :color="pageRangeError ? 'error' : undefined"
+            @update:model-value="onPageRangeInput"
+          />
+        </UFormField>
+      </div>
+
+      <!-- 镜像打印 -->
+      <UFormField label="镜像打印">
+        <label class="flex items-center gap-2 p-2 border rounded-lg cursor-pointer transition hover:bg-elevated w-fit"
+          :class="mirror ? 'border-primary bg-primary/5' : 'border-muted'">
+          <UCheckbox :model-value="mirror" @update:model-value="$emit('update:mirror', $event)" />
+          <UIcon name="i-lucide-flip-horizontal" class="w-4 h-4" />
+          <span class="text-sm">水平镜像翻转</span>
+        </label>
+      </UFormField>
+
+      <!-- 打印按钮 -->
+      <UButton
+        color="primary"
+        size="lg"
+        class="w-full"
+        icon="i-lucide-printer"
+        :disabled="!canPrint || printing"
+        :loading="printing"
+        @click="$emit('print')"
+      >
+        提交打印
+      </UButton>
+    </div>
+  </UCard>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+
+const props = defineProps({
+  isColor: { type: Boolean, default: true },
+  duplex: { type: String, default: 'one-sided' },
+  orientation: { type: String, default: 'portrait' },
+  copies: { type: Number, default: 1 },
+  paperSize: { type: String, default: 'A4' },
+  paperType: { type: String, default: 'plain' },
+  printScaling: { type: String, default: 'fit' },
+  pageRange: { type: String, default: '' },
+  mirror: { type: Boolean, default: false },
+  printing: { type: Boolean, default: false },
+  canPrint: { type: Boolean, default: false },
+  selectedFile: { type: [File, null], default: null }
+})
+
+const emit = defineEmits([
+  'update:isColor', 'update:duplex', 'update:orientation', 'update:copies',
+  'update:paperSize', 'update:paperType', 'update:printScaling', 'update:pageRange',
+  'update:mirror', 'print'
+])
+
+const pageRangeError = ref('')
+
+const colorItems = [
+  { label: '彩色打印', value: true, icon: 'i-lucide-palette' },
+  { label: '黑白打印', value: false, icon: 'i-lucide-circle' }
+]
+
+const duplexItems = [
+  { label: '单面打印', value: 'one-sided' },
+  { label: '双面（长边翻页）', value: 'two-sided-long-edge' },
+  { label: '双面（短边翻页）', value: 'two-sided-short-edge' }
+]
+
+const orientationItems = [
+  { label: '纵向', value: 'portrait', icon: 'i-lucide-rectangle-vertical' },
+  { label: '横向', value: 'landscape', icon: 'i-lucide-rectangle-horizontal' }
+]
+
+const paperSizeItems = [
+  { label: 'A5 (148×210mm)', value: 'A5' },
+  { label: 'A4 (210×297mm)', value: 'A4' },
+  { label: 'A3 (297×420mm)', value: 'A3' },
+  { label: 'A2 (420×594mm)', value: 'A2' },
+  { label: 'A1 (594×841mm)', value: 'A1' },
+  { label: '5寸 (89×127mm)', value: '5inch' },
+  { label: '6寸 (102×152mm)', value: '6inch' },
+  { label: '7寸 (127×178mm)', value: '7inch' },
+  { label: '8寸 (152×203mm)', value: '8inch' },
+  { label: '10寸 (203×254mm)', value: '10inch' },
+  { label: 'Letter (8.5×11in)', value: 'Letter' },
+  { label: 'Legal (8.5×14in)', value: 'Legal' }
+]
+
+const paperTypeItems = [
+  { label: '普通纸', value: 'plain' },
+  { label: '照片纸', value: 'photo' },
+  { label: '光面照片纸', value: 'glossy' },
+  { label: '哑光照片纸', value: 'matte' },
+  { label: '信封', value: 'envelope' },
+  { label: '卡片纸', value: 'cardstock' },
+  { label: '标签纸', value: 'labels' },
+  { label: '自动选择', value: 'auto' }
+]
+
+const scalingItems = [
+  { label: '自动', value: 'auto' },
+  { label: '自动适应', value: 'auto-fit' },
+  { label: '适应纸张', value: 'fit' },
+  { label: '填充纸张', value: 'fill' },
+  { label: '无缩放', value: 'none' }
+]
+
+function onPageRangeInput(val) {
+  emit('update:pageRange', val)
+  validatePageRange(val)
+}
+
+function validatePageRange(val) {
+  if (typeof val !== 'string') val = ''
+  val = val.trim()
+  if (!val) { pageRangeError.value = ''; return }
+
+  const normalizedVal = val
+    .replace(/[－—–―]/g, '-')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/[，,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (normalizedVal !== val) {
+    emit('update:pageRange', normalizedVal)
+    val = normalizedVal
+  }
+
+  const pattern = /^(\d+(-\d+)?)(\s+\d+(-\d+)?)*$/
+  pageRangeError.value = pattern.test(val) ? '' : '格式无效，例如：1-5 8 10-12'
+}
+</script>
