@@ -254,6 +254,7 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 		PrintScaling: printScaling,
 		PageRange:    pageRange,
 		Mirror:       mirror,
+		Pages:        pages,
 	}
 
 	job, err := ipp.SendPrintJob(printer, f, mime, sess.Username, fh.Filename, printOpts)

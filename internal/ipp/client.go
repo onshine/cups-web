@@ -25,6 +25,7 @@ type PrintJobOptions struct {
 	PrintScaling string // "auto" | "auto-fit" | "fit" | "fill" | "none"
 	PageRange    string // e.g. "1-5 8 10-12"
 	Mirror       bool   // mirror / horizontal flip
+	Pages        int    // total document pages (for job-impressions hint)
 }
 
 // SendPrintJob sends data to the printer via IPP using goipp to build the
@@ -71,12 +72,11 @@ func SendPrintJob(printerURI string, r io.Reader, mime string, username string, 
 	}
 	req.Job.Add(goipp.MakeAttribute("copies", goipp.TagInteger, goipp.Integer(copies)))
 
-	// Orientation
-	switch opts.Orientation {
-	case "landscape":
+	// Orientation – only override when landscape; portrait is the CUPS default
+	// and explicitly sending orientation-requested=3 may cause pdftopdf to
+	// re-process the document, leading to an inflated page count in CUPS.
+	if opts.Orientation == "landscape" {
 		req.Job.Add(goipp.MakeAttribute("orientation-requested", goipp.TagEnum, goipp.Integer(4)))
-	default:
-		req.Job.Add(goipp.MakeAttribute("orientation-requested", goipp.TagEnum, goipp.Integer(3)))
 	}
 
 	// Paper size (media)
@@ -115,6 +115,17 @@ func SendPrintJob(printerURI string, r io.Reader, mime string, username string, 
 	// Mirror (best-effort)
 	if opts.Mirror {
 		req.Job.Add(goipp.MakeAttribute("mirror", goipp.TagBoolean, goipp.Boolean(true)))
+	}
+
+	// Job impressions hint – tells CUPS the expected page count so that its
+	// job-accounting display matches the actual document instead of relying
+	// on the filter-reported count (which may be off by one).
+	if opts.Pages > 0 {
+		impressions := opts.Pages
+		if copies > 1 {
+			impressions = opts.Pages * copies
+		}
+		req.Job.Add(goipp.MakeAttribute("job-impressions", goipp.TagInteger, goipp.Integer(impressions)))
 	}
 
 	payload, err := req.EncodeBytes()
