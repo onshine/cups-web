@@ -16,6 +16,7 @@
         <PrinterSelector v-model="printer" :printers="printers" @change="onPrinterChange" />
         <FileUpload
           :selected-file="selectedFile"
+          :display-name="fileDisplayName"
           :converting="converting"
           :converted="converted"
           :preview-url="previewUrl"
@@ -24,11 +25,36 @@
           :can-print="canPrint"
           :can-convert="canConvert"
           :printing="printing"
+          :is-multi-image="isMultiImage"
+          :total-size="multiImageTotalSize"
           @file-selected="processFile"
+          @files-selected="processMultipleImages"
           @clear="clearFile"
           @convert="convertToPdf"
           @print="uploadAndPrint"
         />
+
+        <!-- 多图片列表 -->
+        <UCard v-if="selectedImages.length > 1">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 font-semibold">
+                <UIcon name="i-lucide-images" class="w-5 h-5" />
+                已选图片 ({{ selectedImages.length }})
+              </div>
+              <UButton variant="ghost" size="xs" color="error" icon="i-lucide-trash-2" @click="clearFile">清空全部</UButton>
+            </div>
+          </template>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div v-for="(img, idx) in selectedImages" :key="idx" class="relative group rounded-lg overflow-hidden border border-default">
+              <img :src="imageThumbnails[idx]" class="w-full h-20 object-cover" />
+              <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <UButton variant="solid" size="xs" color="error" icon="i-lucide-x" @click="removeImage(idx)" />
+              </div>
+              <p class="text-xs truncate px-1 py-0.5">{{ img.name }}</p>
+            </div>
+          </div>
+        </UCard>
         <PrintOptions
           v-model:isColor="isColor"
           v-model:duplex="duplex"
@@ -49,6 +75,7 @@
           :orientation-label="orientationLabel"
           :paper-dim-text="paperDimText"
           :paper-preview-style="paperPreviewStyle"
+          :is-multi-image="isMultiImage"
           @print="uploadAndPrint"
         />
       </div>
@@ -89,6 +116,9 @@ const converting = ref(false)
 const converted = ref(false)
 const pdfBlob = ref(null)
 const downloadName = ref('')
+const selectedImages = ref([])
+const imageThumbnails = ref([])
+const fileDisplayName = ref('')
 
 // ─── 打印参数 ─────────────────────────────────────────────
 const isColor = ref(true)
@@ -151,8 +181,13 @@ const paperSizeItems = [
 ]
 
 // ─── 计算属性 ─────────────────────────────────────────────
-const canPrint = computed(() => !!printer.value && (!!pdfBlob.value || !!selectedFile.value))
-const canConvert = computed(() => !!selectedFile.value && !converting.value && selectedFile.value.type !== 'application/pdf')
+const isMultiImage = computed(() => selectedImages.value.length > 1)
+const multiImageTotalSize = computed(() => selectedImages.value.reduce((sum, f) => sum + f.size, 0))
+const canPrint = computed(() => !!printer.value && (!!pdfBlob.value || !!selectedFile.value || isMultiImage.value))
+const canConvert = computed(() => {
+  if (isMultiImage.value) return !converting.value && !converted.value
+  return !!selectedFile.value && !converting.value && selectedFile.value.type !== 'application/pdf'
+})
 
 const paperSizeLabel = computed(() => {
   const item = paperSizeItems.find(i => i.value === paperSize.value)
@@ -219,11 +254,17 @@ function clearFile() {
   converted.value = false
   selectedFile.value = null
   downloadName.value = ''
+  // 清空多图片状态
+  imageThumbnails.value.forEach(url => { try { URL.revokeObjectURL(url) } catch (_) {} })
+  selectedImages.value = []
+  imageThumbnails.value = []
+  fileDisplayName.value = ''
 }
 
 function processFile(f) {
   clearFile()
   selectedFile.value = f
+  fileDisplayName.value = ''
   downloadName.value = f.name.replace(/\.[^/.]+$/, '') + '.pdf'
 
   if (f.type === 'application/pdf') {
@@ -253,34 +294,78 @@ function processFile(f) {
   }
 }
 
-async function imageFileToPdfBlob(file, orient, pSize) {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      const dims = paperDimensionsMap[pSize] || { width: 210, height: 297 }
-      const isLandscape = orient === 'landscape'
-      const doc = new jsPDF({
-        orientation: isLandscape ? 'l' : 'p',
-        unit: 'mm',
-        format: [dims.width, dims.height]
-      })
-      const pageWidth = doc.internal.pageSize.getWidth()
-      const pageHeight = doc.internal.pageSize.getHeight()
-      const margin = 10
-      const maxW = pageWidth - margin * 2
-      const maxH = pageHeight - margin * 2
-      const imgRatio = img.width / img.height
-      let drawW, drawH
-      if (imgRatio > maxW / maxH) { drawW = maxW; drawH = maxW / imgRatio }
-      else { drawH = maxH; drawW = maxH * imgRatio }
-      const x = margin + (maxW - drawW) / 2
-      const y = margin + (maxH - drawH) / 2
-      doc.addImage(img, 'JPEG', x, y, drawW, drawH)
-      resolve(doc.output('blob'))
-    }
-    img.onerror = () => reject(new Error('图片加载失败'))
-    img.src = URL.createObjectURL(file)
+async function imagesToPdfBlob(files, orient, pSize) {
+  const fileList = Array.isArray(files) ? files : [files]
+  const dims = paperDimensionsMap[pSize] || { width: 210, height: 297 }
+  const isLandscape = orient === 'landscape'
+  const doc = new jsPDF({
+    orientation: isLandscape ? 'l' : 'p',
+    unit: 'mm',
+    format: [dims.width, dims.height]
   })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const margin = 10
+  const maxW = pageWidth - margin * 2
+  const maxH = pageHeight - margin * 2
+
+  for (let i = 0; i < fileList.length; i++) {
+    if (i > 0) doc.addPage([dims.width, dims.height], isLandscape ? 'l' : 'p')
+    await new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => {
+        const imgRatio = img.width / img.height
+        let drawW, drawH
+        if (imgRatio > maxW / maxH) { drawW = maxW; drawH = maxW / imgRatio }
+        else { drawH = maxH; drawW = maxH * imgRatio }
+        const x = margin + (maxW - drawW) / 2
+        const y = margin + (maxH - drawH) / 2
+        const fmt = fileList[i].type === 'image/png' ? 'PNG' : 'JPEG'
+        doc.addImage(img, fmt, x, y, drawW, drawH)
+        URL.revokeObjectURL(img.src)
+        resolve()
+      }
+      img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error(`图片加载失败: ${fileList[i].name}`)) }
+      img.src = URL.createObjectURL(fileList[i])
+    })
+  }
+  return doc.output('blob')
+}
+
+function processMultipleImages(files) {
+  clearFile()
+  selectedImages.value = [...files]
+  fileDisplayName.value = `${files.length}张图片`
+  downloadName.value = '合并图片.pdf'
+  // 生成缩略图
+  imageThumbnails.value = files.map(f => URL.createObjectURL(f))
+  // 用第一张图片作为预览
+  previewUrl.value = imageThumbnails.value[0]
+  previewType.value = 'image'
+  converted.value = false
+}
+
+function removeImage(idx) {
+  URL.revokeObjectURL(imageThumbnails.value[idx])
+  selectedImages.value.splice(idx, 1)
+  imageThumbnails.value.splice(idx, 1)
+  if (selectedImages.value.length === 1) {
+    // 切换为单图片模式
+    const f = selectedImages.value[0]
+    selectedImages.value = []
+    imageThumbnails.value.forEach(url => { try { URL.revokeObjectURL(url) } catch (_) {} })
+    imageThumbnails.value = []
+    fileDisplayName.value = ''
+    processFile(f)
+  } else if (selectedImages.value.length === 0) {
+    clearFile()
+  } else {
+    fileDisplayName.value = `${selectedImages.value.length}张图片`
+    // 更新预览为第一张（不调用 clearPreviewUrl，因为旧 previewUrl 与 imageThumbnails 共享同一 URL）
+    previewUrl.value = imageThumbnails.value[0]
+    converted.value = false
+    pdfBlob.value = null
+  }
 }
 
 function textToPdfBlob(text, orient, pSize) {
@@ -313,15 +398,17 @@ async function convertOfficeToPdf(file) {
 }
 
 async function convertToPdf() {
-  if (!selectedFile.value) return
+  if (!selectedFile.value && !isMultiImage.value) return
   converting.value = true
   try {
     const f = selectedFile.value
     let blob
-    if (isOfficeFile(f) || isOFDFile(f)) {
+    if (isMultiImage.value) {
+      blob = await imagesToPdfBlob(selectedImages.value, orientation.value, paperSize.value)
+    } else if (isOfficeFile(f) || isOFDFile(f)) {
       blob = await convertOfficeToPdf(f)
     } else if (f.type.startsWith('image/')) {
-      blob = await imageFileToPdfBlob(f, orientation.value, paperSize.value)
+      blob = await imagesToPdfBlob(f, orientation.value, paperSize.value)
     } else {
       const text = await f.text()
       blob = textToPdfBlob(text, orientation.value, paperSize.value)
@@ -344,12 +431,19 @@ async function uploadAndPrint() {
   if (!printer.value) { toast.add({ title: '请选择打印机', color: 'warning' }); return }
 
   const fileToSend = pdfBlob.value || selectedFile.value
+  if (!fileToSend && !isMultiImage.value) { toast.add({ title: '请先选择文件', color: 'warning' }); return }
+  // 多图片未转换时自动转换
+  if (isMultiImage.value && !pdfBlob.value) {
+    await convertToPdf()
+    if (!pdfBlob.value) return
+  }
+  const actualFile = pdfBlob.value || selectedFile.value
   const filename = pdfBlob.value
     ? (downloadName.value || 'document.pdf')
     : (selectedFile.value ? selectedFile.value.name : 'document')
 
   const form = new FormData()
-  form.append('file', fileToSend, filename)
+  form.append('file', actualFile, filename)
   form.append('printer', printer.value)
   form.append('duplex', duplex.value === 'one-sided' ? 'false' : 'true')
   form.append('color', isColor.value ? 'true' : 'false')
@@ -478,6 +572,6 @@ onMounted(async () => {
 onUnmounted(() => {
   clearInterval(recordsTimer)
   clearInterval(printerInfoTimer)
-  clearPreviewUrl()
+  clearFile()
 })
 </script>

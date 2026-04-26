@@ -114,7 +114,7 @@
       </div>
 
       <!-- 预览 -->
-      <template v-if="selectedFile">
+      <template v-if="selectedFile || isMultiImage">
         <div class="border-t border-default pt-4">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2 font-semibold">
@@ -180,7 +180,8 @@ const props = defineProps({
   paperSizeLabel: { type: String, default: '' },
   orientationLabel: { type: String, default: '' },
   paperDimText: { type: String, default: '' },
-  paperPreviewStyle: { type: Object, default: () => ({}) }
+  paperPreviewStyle: { type: Object, default: () => ({}) },
+  isMultiImage: { type: Boolean, default: false }
 })
 
 const emit = defineEmits([
