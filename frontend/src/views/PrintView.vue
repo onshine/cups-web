@@ -180,17 +180,27 @@ const paperPreviewStyle = computed(() => {
   const width = isLandscape ? dim.height : dim.width
   const height = isLandscape ? dim.width : dim.height
   const ratio = width / height
-  const maxHeight = 400
-  const maxWidth = 600
+  const maxW = 380
+  const maxH = 480
   let displayWidth, displayHeight
   if (ratio > 1) {
-    displayWidth = Math.min(maxWidth, maxHeight * ratio)
+    // Landscape: width-constrained
+    displayWidth = maxW
     displayHeight = displayWidth / ratio
+    if (displayHeight > maxH) {
+      displayHeight = maxH
+      displayWidth = displayHeight * ratio
+    }
   } else {
-    displayHeight = Math.min(maxHeight, maxWidth / ratio)
+    // Portrait: height-constrained
+    displayHeight = maxH
     displayWidth = displayHeight * ratio
+    if (displayWidth > maxW) {
+      displayWidth = maxW
+      displayHeight = displayWidth / ratio
+    }
   }
-  return { width: `${displayWidth}px`, height: `${displayHeight}px` }
+  return { width: `${Math.round(displayWidth)}px`, height: `${Math.round(displayHeight)}px`, maxHeight: '70vh' }
 })
 
 // ─── 文件操作 ─────────────────────────────────────────────

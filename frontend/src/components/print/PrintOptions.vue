@@ -102,7 +102,7 @@
           </div>
           <div class="flex justify-center items-center py-4 bg-elevated rounded-lg" style="min-height: 200px;">
             <div :style="paperPreviewStyle"
-                 class="bg-white shadow-lg border border-default overflow-hidden transition-all duration-300 ease-in-out relative max-h-[250px] sm:max-h-[350px] md:max-h-[400px]">
+                 class="bg-white shadow-lg border border-default overflow-hidden transition-all duration-300 ease-in-out relative">
               <img v-if="previewType === 'image'" :src="previewUrl" class="w-full h-full object-contain" />
               <PdfCanvas v-else-if="previewType === 'pdf'" :src="previewUrl" />
               <div v-else-if="previewType === 'text'" class="p-3 text-[8px] leading-tight overflow-hidden h-full text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
