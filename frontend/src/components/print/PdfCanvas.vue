@@ -3,8 +3,9 @@
     <div v-if="loading" class="text-center text-muted">
       <UIcon name="i-lucide-loader-circle" class="w-6 h-6 animate-spin" />
     </div>
-    <div v-else-if="error" class="text-center text-muted text-sm p-4">
+    <div v-else-if="error" class="text-center text-muted text-xs p-3 leading-relaxed">
       <p>PDF 预览加载失败</p>
+      <p class="mt-1 text-[10px] opacity-80">不影响打印，仍可点击"开始打印"</p>
     </div>
     <div v-show="!loading && !error" class="relative w-full h-full flex items-center justify-center">
       <canvas ref="canvas" class="max-w-full max-h-full" />
@@ -27,6 +28,9 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker
 const props = defineProps({
   src: { type: String, required: true }
 })
+
+// 预览失败时通知父组件，便于在外层展示"不影响打印"的提示
+const emit = defineEmits(['preview-failed'])
 
 const canvas = ref(null)
 const container = ref(null)
@@ -100,7 +104,20 @@ async function renderPdf() {
       pdfDoc = null
     }
 
-    pdfDoc = await pdfjsLib.getDocument(props.src).promise
+    // 关键参数说明：
+    // - cMapUrl / cMapPacked：支持 UniGB-UCS2-H 等中文外部 CMap，修复 CJK 预览空白
+    // - standardFontDataUrl + useSystemFonts：预览未嵌入字体的 PDF 时用系统兜底字体
+    // - disableFontFace=false：允许用 @font-face 注入字体（默认就是 false，显式保留以防升级回归）
+    // - isEvalSupported=false：CSP/严格 Worker 环境下避免 eval 被拦截
+    pdfDoc = await pdfjsLib.getDocument({
+      url: props.src,
+      cMapUrl: '/pdfjs/cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: '/pdfjs/standard_fonts/',
+      disableFontFace: false,
+      useSystemFonts: true,
+      isEvalSupported: false
+    }).promise
     totalPages.value = pdfDoc.numPages
     currentPage.value = 1
 
@@ -115,6 +132,7 @@ async function renderPdf() {
     console.error('PDF render error:', e)
     error.value = true
     loading.value = false
+    emit('preview-failed', e)
   }
 }
 

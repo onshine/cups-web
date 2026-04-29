@@ -71,9 +71,20 @@ func convertHandler(w http.ResponseWriter, r *http.Request) {
 	case fileKindOFD:
 		outPath, outCleanup, err = convertOFDToPDF(ctx, inPath)
 	case fileKindPDF:
-		// PDF 直接回传，理论上前端不会让已是 PDF 的文件走转换；这里兜底处理
-		outPath = inPath
-		outCleanup = func() {}
+		// PDF 也走标准化（gs / libreoffice / passthrough），让前端预览与后端打印使用同一份 PDF。
+		// 任何失败都会被 normalizePDF 内部吞掉并降级到 passthrough，不会阻断前端预览。
+		normRes, _ := normalizePDF(ctx, inPath)
+		if normRes != nil {
+			outPath = normRes.OutputPath
+			if normRes.Cleanup != nil {
+				outCleanup = normRes.Cleanup
+			} else {
+				outCleanup = func() {}
+			}
+		} else {
+			outPath = inPath
+			outCleanup = func() {}
+		}
 	default:
 		outPath, outCleanup, err = convertOfficeToPDF(ctx, inPath)
 	}

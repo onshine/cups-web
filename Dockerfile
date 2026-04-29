@@ -32,6 +32,7 @@ FROM debian:bookworm-slim AS runtime
 # Install LibreOffice (headless conversion) and minimal fonts/certificates
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-core libreoffice-writer libreoffice-calc libreoffice-impress openjdk-17-jre \
+    ghostscript \
     fonts-dejavu-core fonts-noto-cjk fonts-arphic-uming fonts-arphic-ukai fonts-wqy-zenhei \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/*

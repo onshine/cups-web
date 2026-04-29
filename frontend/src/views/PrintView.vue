@@ -325,10 +325,26 @@ function processFile(f) {
   downloadName.value = f.name.replace(/\.[^/.]+$/, '') + '.pdf'
 
   if (f.type === 'application/pdf') {
+    // 1) 先用本地 blob URL 立刻出预览，保证无后端可达时也能看到首帧
     previewUrl.value = URL.createObjectURL(f)
     previewType.value = 'pdf'
     pdfBlob.value = f
     converted.value = true
+    // 2) 异步走 /api/convert 拿后端标准化后的 PDF（gs/libreoffice），
+    //    把预览和最终打印链路统一到同一份文件；失败静默回退到本地 blob
+    const originalFile = f
+    ;(async () => {
+      try {
+        const blob = await convertOfficeToPdf(originalFile)
+        if (selectedFile.value !== originalFile) return
+        pdfBlob.value = blob
+        clearPreviewUrl()
+        previewUrl.value = URL.createObjectURL(blob)
+        previewType.value = 'pdf'
+      } catch (_) {
+        // 静默失败：继续使用本地 blob，打印走 /api/print 时后端会再次标准化
+      }
+    })()
   } else if (f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name)) {
     if (isHeicImage(f)) {
       // HEIC/HEIF 浏览器无法原生解码，先提示"正在转换"，异步用 heic2any 转成 JPEG 再预览

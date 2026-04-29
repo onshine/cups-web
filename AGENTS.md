@@ -40,8 +40,9 @@
 | 依赖 | 作用 |
 | --- | --- |
 | CUPS | 打印服务，通过 IPP 通信 |
-| LibreOffice（headless） | Office 文档 → PDF |
+| LibreOffice（headless） | Office 文档 → PDF；同时作为 PDF 标准化的兜底链路 |
 | Java 17 + `ofd-converter.jar` | OFD 文档 → PDF（基于 `ofdrw`） |
+| Ghostscript (`gs`) | PDF 标准化首选链路：统一降级到 PDF 1.4 并强制嵌入所有字体，解决 `UniGB-UCS2-H` 等外部 CMap 编码导致的打印乱码（本地 macOS 需要 `brew install ghostscript`） |
 
 ## 📁 项目结构
 
@@ -234,17 +235,17 @@ KV 表：`key TEXT PRIMARY KEY` + `value TEXT`。
 1. **接收**：解析 multipart 表单，提取 `file` + 打印参数
 2. **落盘**：`saveUploadedFile` 将上传文件按日期分目录保存到 `uploads/YYYYMMDD/` 下，文件名做安全化处理
 3. **类型识别 & 转换**（`detectFileKind`）：
-   - `pdf` → 直接使用
+   - `pdf` → **PDF 标准化管线**（`diagnosePDF` 诊断日志 → `normalizePDF`：Ghostscript `pdfwrite -dCompatibilityLevel=1.4 -dEmbedAllFonts=true` 优先 → LibreOffice `--convert-to pdf` 兜底 → passthrough 最终降级），解决 Acrobat 高版本 / `UniGB-UCS2-H` 等外部 CMap 导致的预览空白与打印乱码
    - `office` → `convertOfficeToPDF`（调 `libreoffice --headless --convert-to pdf`）
    - `ofd` → `convertOFDToPDF`（调 `java -jar /ofd-converter.jar`）
    - `image` → `convertImageToPDF`（用 `gofpdf` 渲染）
    - `text` → `convertTextToPDF`（用 `gofpdf` + 内嵌中文字体渲染）
-4. **页数统计**：`countPDFPages` / `estimateTextPages`
+4. **页数统计**：`countPDFPages` / `countPDFPagesWithFallback` / `estimateTextPages`；PDF 页数读取失败时走 `normalizePDF` 再重试，仍失败则以 1 页兜底而非直接 400
 5. **持久化**：在 `print_jobs` 插入一条 `queued` 记录
 6. **提交打印**：`ipp.SendPrintJob` 构造 `Print-Job` IPP 请求并发出
 7. **回写状态**：成功后更新为 `printed` 并回填 `job_id`
 
-转换后的 PDF 以 `<原文件>.print.pdf` 副文件形式存到 `uploads/`，维护任务清理时会连同原文件一起删除。
+转换或标准化后的 PDF 以 `<原文件>.print.pdf` 副文件形式存到 `uploads/`，维护任务清理时会连同原文件一起删除。`/api/convert` 对 PDF 也会走同一条 `normalizePDF` 管线，让前端 `PdfCanvas` 预览与最终打印使用完全相同的字节流。
 
 ## 🧹 维护任务
 

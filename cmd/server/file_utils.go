@@ -193,8 +193,8 @@ func countPages(ctx context.Context, path string, name string) (int, bool, error
 	kind := detectFileKind(path, name)
 	switch kind {
 	case fileKindPDF:
-		pages, err := countPDFPages(path)
-		return pages, false, err
+		pages, estimated, err := countPDFPagesWithFallback(ctx, path)
+		return pages, estimated, err
 	case fileKindImage:
 		return 1, false, nil
 	case fileKindText:
@@ -230,6 +230,36 @@ func countPDFPages(path string) (int, error) {
 		return 1, nil
 	}
 	return doc.NumPage(), nil
+}
+
+// countPDFPagesWithFallback 在 countPDFPages 失败时尝试先通过 normalizePDF 把 PDF
+// 标准化（gs / libreoffice），再次读取页数。若仍失败则返回 (1, true, err)——
+// estimated=true 表示页数不可信，调用方可据此决定是否继续流程而非直接 400。
+func countPDFPagesWithFallback(ctx context.Context, path string) (int, bool, error) {
+	if pages, err := countPDFPages(path); err == nil {
+		return pages, false, nil
+	} else if !fileHasPDFHeader(path) {
+		// 连 %PDF- 头都没有，不再尝试标准化，直接估算为 1 页
+		return 1, true, err
+	}
+
+	normRes, nerr := normalizePDF(ctx, path)
+	if nerr != nil || normRes == nil || normRes.Method == "passthrough" {
+		if normRes != nil && normRes.Cleanup != nil {
+			normRes.Cleanup()
+		}
+		return 1, true, fmt.Errorf("countPDFPagesWithFallback: normalize failed: %v", nerr)
+	}
+	defer func() {
+		if normRes.Cleanup != nil {
+			normRes.Cleanup()
+		}
+	}()
+	pages, err := countPDFPages(normRes.OutputPath)
+	if err != nil {
+		return 1, true, err
+	}
+	return pages, false, nil
 }
 
 func estimateTextPages(path string) (int, error) {

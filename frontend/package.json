@@ -4,6 +4,8 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
+    "predev": "node scripts/copy-pdfjs-assets.js",
+    "prebuild": "node scripts/copy-pdfjs-assets.js",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"

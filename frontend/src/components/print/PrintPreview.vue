@@ -36,7 +36,7 @@
         class="bg-white shadow-lg border border-default overflow-hidden transition-all duration-300 ease-in-out relative"
       >
         <img v-if="previewType === 'image'" :src="previewUrl" class="w-full h-full object-contain" />
-        <PdfCanvas v-else-if="previewType === 'pdf'" :src="previewUrl" />
+        <PdfCanvas v-else-if="previewType === 'pdf'" :src="previewUrl" @preview-failed="onPreviewFailed" />
         <div
           v-else-if="previewType === 'text'"
           class="p-3 text-[8px] leading-tight overflow-hidden h-full text-gray-700 dark:text-gray-300 whitespace-pre-wrap"
@@ -51,11 +51,14 @@
     <div v-else class="py-6 text-center text-xs text-muted">
       上传文件后显示预览
     </div>
+    <p v-if="pdfPreviewFailed && previewType === 'pdf'" class="mt-2 text-center text-xs text-muted">
+      PDF 预览加载失败，不影响打印，可直接点击"开始打印"。
+    </p>
   </UCard>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import PdfCanvas from './PdfCanvas.vue'
 
 const props = defineProps({
@@ -81,6 +84,11 @@ const orientationItems = [
 const isMobile = ref(false)
 let mediaQuery = null
 function updateMobile(e) { isMobile.value = e.matches }
+
+// PDF 预览失败标记：在父组件传入新 previewUrl 时重置
+const pdfPreviewFailed = ref(false)
+function onPreviewFailed() { pdfPreviewFailed.value = true }
+watch(() => props.previewUrl, () => { pdfPreviewFailed.value = false })
 onMounted(() => {
   mediaQuery = window.matchMedia('(max-width: 639px)')
   isMobile.value = mediaQuery.matches

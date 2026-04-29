@@ -10,14 +10,24 @@ import (
 	"time"
 )
 
-func convertOfficeToPDF(ctx context.Context, inputPath string) (string, func(), error) {
+// runLibreOfficeConvert 调用 libreoffice --headless --convert-to <filter> 做通用文档转换，
+// 返回生成的 PDF 绝对路径、清理函数与错误。filter 为空时默认使用 "pdf"。
+func runLibreOfficeConvert(ctx context.Context, inputPath string, filter string) (string, func(), error) {
+	if _, err := exec.LookPath("libreoffice"); err != nil {
+		return "", nil, fmt.Errorf("libreoffice not found in PATH: %w", err)
+	}
+
 	tmpDir, err := os.MkdirTemp("", "convert-")
 	if err != nil {
 		return "", nil, err
 	}
 	cleanup := func() { _ = os.RemoveAll(tmpDir) }
 
-	cmd := exec.CommandContext(ctx, "libreoffice", "--headless", "--convert-to", "pdf", "--outdir", tmpDir, inputPath)
+	convertTo := filter
+	if convertTo == "" {
+		convertTo = "pdf"
+	}
+	cmd := exec.CommandContext(ctx, "libreoffice", "--headless", "--convert-to", convertTo, "--outdir", tmpDir, inputPath)
 	cmd.Env = append(os.Environ(), "LANG=zh_CN.UTF-8", "LC_ALL=zh_CN.UTF-8")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		cleanup()
@@ -37,6 +47,18 @@ func convertOfficeToPDF(ctx context.Context, inputPath string) (string, func(), 
 	}
 
 	return outPath, cleanup, nil
+}
+
+// convertOfficeToPDF 将 Office 文档（.doc/.docx/.xls/.xlsx/.ppt/.pptx）转成 PDF。
+func convertOfficeToPDF(ctx context.Context, inputPath string) (string, func(), error) {
+	return runLibreOfficeConvert(ctx, inputPath, "pdf")
+}
+
+// convertPDFViaLibreOffice 通过 LibreOffice 重新导出 PDF，用作 Ghostscript 不可用时的兜底。
+// LibreOffice 对部分 Acrobat 高版本 PDF 的解析好于原生 rsc.io/pdf，但兼容性仍不如 Ghostscript，
+// 因此仅在 gs 路径失败后调用。
+func convertPDFViaLibreOffice(ctx context.Context, inputPath string) (string, func(), error) {
+	return runLibreOfficeConvert(ctx, inputPath, "pdf")
 }
 
 func convertOFDToPDF(ctx context.Context, inputPath string) (string, func(), error) {

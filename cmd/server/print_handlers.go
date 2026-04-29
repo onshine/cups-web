@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -75,14 +76,42 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 	kind := detectFileKind(storedAbs, fh.Filename)
 	switch kind {
 	case fileKindPDF:
-		var err error
-		pages, err = countPDFPages(storedAbs)
-		if err != nil {
-			_ = os.Remove(storedAbs)
-			writeJSONError(w, http.StatusBadRequest, "failed to read pages")
-			return
+		// PDF 标准化管线：诊断日志 → normalizePDF（gs / libreoffice / passthrough）→ 读页数
+		diagnosePDF(storedAbs)
+
+		normRes, nerr := normalizePDF(countCtx, storedAbs)
+		if nerr != nil {
+			log.Printf("[print] normalizePDF fatal: %v", nerr)
 		}
+		effectivePath := storedAbs
+		if normRes != nil {
+			effectivePath = normRes.OutputPath
+			if normRes.Method != "passthrough" {
+				// 将标准化后的 PDF 持久化到 uploads/ 下，命名为 <原文件>.print.pdf，
+				// 以便维护任务按保留天数一起清理；随后把打印路径切到该副本。
+				if _, convertedAbs, saveErr := saveConvertedPDFToUploads(normRes.OutputPath, storedRel, uploadDir); saveErr == nil {
+					effectivePath = convertedAbs
+				} else {
+					log.Printf("[print] save normalized pdf failed: %v", saveErr)
+				}
+			}
+			if normRes.Cleanup != nil {
+				printCleanup = normRes.Cleanup
+			}
+		}
+
+		var cerr error
+		pages, cerr = countPDFPages(effectivePath)
+		if cerr != nil {
+			log.Printf("[print] countPDFPages failed (method=%s): %v", methodOf(normRes), cerr)
+			pages = 1
+		}
+		printPath = effectivePath
 		printMime = "application/pdf"
+		// passthrough 且页数仍无法读取时，MIME 降级为 octet-stream，让 CUPS/IPP 自行识别
+		if cerr != nil && normRes != nil && normRes.Method == "passthrough" {
+			printMime = "application/octet-stream"
+		}
 	case fileKindOffice:
 		outPath, cleanup, err := convertOfficeToPDF(countCtx, storedAbs)
 		if err != nil {
