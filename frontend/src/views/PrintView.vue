@@ -310,46 +310,47 @@ function processFile(f) {
   downloadName.value = f.name.replace(/\.[^/.]+$/, '') + '.pdf'
 
   if (f.type === 'application/pdf') {
-    // 1) 先用本地 blob URL 立刻出预览，保证无后端可达时也能看到首帧
-    previewUrl.value = URL.createObjectURL(f)
-    previewType.value = 'pdf'
-    pdfBlob.value = f
-    converted.value = true
-    // 2) 异步走 /api/convert 拿后端标准化后的 PDF（gs/libreoffice），
-    //    把预览和最终打印链路统一到同一份文件；失败静默回退到本地 blob
+    // PDF 预览：**直接等后端 /api/convert (normalizePDF / gs) 返回再设 previewUrl**。
     //
-    // 关键并发处理：pdfjs.getDocument 是异步加载的，下面这段 clearPreviewUrl + createObjectURL
-    // 会在 PdfCanvas 第一次 fetch 进行中把旧 blob 立即 revoke，导致 Safari / 某些环境下 fetch
-    // 被 abort，进而 pdf.js 抛错污染预览状态。这里做两件事避免竞态：
-    //   a) passthrough 场景（后端没装 gs/libreoffice）blob 大小与原文件完全一致，直接复用
-    //      现有预览，不替换 URL，也不触发 PdfCanvas 重载；
-    //   b) 必须替换时，先挂新 URL 让 PdfCanvas 接管，再延后到下一个微任务 revoke 旧 URL，
-    //      让可能仍在进行的第一次 fetch 有机会优雅失败（此时 PdfCanvas 已用最新 token 守卫）。
-    const originalFile = f
-    const prevUrl = previewUrl.value
+    // 之所以不再先挂本地原始 PDF 做"秒开"：一旦等 gs 处理完再换 blob URL，pdf.js
+    // 会重新 getDocument 一次，视觉上就会"闪一下"（原始字体 → gs 产物字体）。
+    // 改成同步等待就不会闪；代价是上传后 PDF 预览会晚 1~2 秒出来，期间用 converting
+    // loading 态覆盖（与 Office / OFD 上传的等待体验一致）。
+    //
+    // 打印字节流仍然是同一份 gs 产物，与预览完全一致。
+    //
+    // 竞态防护：捕获当前 selectedFile 引用，异步返回时比对；用户换/清了文件就丢弃结果。
+    converting.value = true
+    previewType.value = 'text'
+    textPreview.value = '正在处理 PDF，请稍候…'
     ;(async () => {
+      let normalizedBlob = null
       try {
-        const blob = await convertOfficeToPdf(originalFile)
-        if (selectedFile.value !== originalFile) return
-
-        // passthrough：字节大小相同说明后端直接返回了原文件，没必要重载预览
-        if (blob.size === originalFile.size) {
-          pdfBlob.value = blob
-          return
+        const fd = new FormData()
+        fd.append('file', f, f.name)
+        const resp = await apiFetch('/api/convert', { method: 'POST', body: fd }, () => emit('logout'))
+        if (!resp.ok) {
+          console.warn('[preview] /api/convert 失败，回退到原始 PDF：', await readError(resp))
+        } else {
+          normalizedBlob = await resp.blob()
         }
-
-        pdfBlob.value = blob
-        previewUrl.value = URL.createObjectURL(blob)
-        previewType.value = 'pdf'
-        // 延后 revoke 旧 URL，让 PdfCanvas 的第一次 getDocument 有时间被 token 守卫优雅终止
-        if (prevUrl) {
-          setTimeout(() => {
-            try { URL.revokeObjectURL(prevUrl) } catch (_) { /* 忽略 */ }
-          }, 0)
-        }
-      } catch (_) {
-        // 静默失败：继续使用本地 blob，打印走 /api/print 时后端会再次标准化
+      } catch (e) {
+        console.warn('[preview] /api/convert 异常，回退到原始 PDF：', e)
       }
+      // 用户在 gs 处理期间换/清了文件，直接丢弃结果
+      if (selectedFile.value !== f) {
+        converting.value = false
+        return
+      }
+      // 成功用 gs 产物，失败兜底用原始 PDF，保证预览不至于白屏
+      const useBlob = normalizedBlob || f
+      clearPreviewUrl()
+      previewUrl.value = URL.createObjectURL(useBlob)
+      previewType.value = 'pdf'
+      textPreview.value = ''
+      pdfBlob.value = useBlob
+      converted.value = true
+      converting.value = false
     })()
   } else if (f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name)) {
     if (isHeicImage(f)) {
