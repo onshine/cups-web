@@ -1,4 +1,14 @@
-FROM debian:stable-slim
+# 固定到 debian:bookworm-slim（Debian 12）而不是 debian:stable-slim：
+# Debian 13 (trixie) 对 32-bit 架构（armhf / i386）做了 64-bit time_t ABI 迁移，
+# 把 libcups2 / libcupsimage2 / libpng16-16 / printer-driver-gutenprint 等包
+# 在 armhf 上替换成了 t64 后缀版本（`libcups2t64` / `libpng16-16t64` 等），
+# 旧包名已经没有 installation candidate —— 这会让 linux/arm/v7 构建直接炸在
+# apt-get install 这一步。amd64/arm64 不受影响是因为 64-bit 架构 time_t 本来
+# 就是 64 位，没有 ABI bump，旧名仍保留为过渡包。
+# bookworm 的 armhf 仓库上述包旧名都在，且 bookworm 也是主 Dockerfile runtime
+# 阶段的 base，两个镜像 base 对齐便于运维。
+# 跟随上游升级到 trixie 时，需要整体把受影响的包名改成 t64 版本并重测 armhf。
+FROM debian:bookworm-slim
 
 ARG TARGETARCH
 ARG TARGETVARIANT

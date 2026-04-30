@@ -11,17 +11,35 @@ COPY frontend ./
 RUN npm run build
 
 # ---- Java OFD converter build ----
-# 使用 debian:bookworm-slim + apt 安装 openjdk-17-jdk-headless + maven 替代
-# maven:3.9-eclipse-temurin-17：Eclipse Temurin 17 在 Linux ARM 32-bit 上 Not Supported
-# （Adoptium 官方平台矩阵，JDK 17/21/25 均无 armhf），而 Debian bookworm 的 armhf 仓库
-# 三架构都有 openjdk-17-jdk-headless + maven 原生包，可以用同一份 Dockerfile 生产出
-# amd64/arm64/arm/v7 三个 manifest。ofd-converter 的 maven.compiler.source=1.8，
-# JDK 17 完全能驱动编译与运行。
+# 选型：debian:bookworm-slim + apt 装 openjdk-17-jdk-headless + curl/ca-certificates，
+# Maven 用 Apache 官方 3.9.x 二进制 tarball，不用 Debian 的 maven 包。
+#
+# 为什么不用 maven:3.9-eclipse-temurin-17：Eclipse Temurin 17 在 Linux ARM 32-bit 上
+# Not Supported（Adoptium 官方平台矩阵，JDK 17/21/25 均无 armhf），Maven 官方镜像同样
+# 没有 armhf manifest。debian:bookworm-slim 在三架构都有 openjdk-17-jdk-headless，
+# ofd-converter 的 maven.compiler.source=1.8，JDK 17 完全能驱动编译与运行。
+#
+# 为什么不用 Debian 的 apt install maven：QEMU 用户态模拟 armhf 下，Debian 的
+# maven 包装完无法启动，会抛 java.lang.ClassNotFoundException: org.apache.maven.cli.MavenCli
+# —— 这是上游已知坑（GitHub carlossg/docker-maven#213）。根因是 Debian maven 包依赖
+# dpkg triggers + update-alternatives 把 maven-core.jar 等软链进 plexus-classworlds
+# 启动器的 classpath，QEMU 模拟下这些 triggers 有时会静默跳过或执行不完整。而 Apache
+# 官方 tarball 是纯 Java 且 classpath 完全自包含（lib/ 下所有 jar 都直接可用），
+# 同一个 tar.gz 跨架构通吃，不依赖任何 OS 打包细节。
 FROM debian:bookworm-slim AS java-builder
 ENV DEBIAN_FRONTEND=noninteractive
+ENV MAVEN_VERSION=3.9.9
+ENV MAVEN_HOME=/opt/maven
+ENV PATH=/opt/maven/bin:$PATH
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      openjdk-17-jdk-headless maven ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+      openjdk-17-jdk-headless ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL "https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" \
+        -o /tmp/maven.tar.gz \
+    && mkdir -p "${MAVEN_HOME}" \
+    && tar -xzf /tmp/maven.tar.gz -C "${MAVEN_HOME}" --strip-components=1 \
+    && rm -f /tmp/maven.tar.gz \
+    && mvn -version
 WORKDIR /src/ofd-converter
 COPY ofd-converter/pom.xml ./
 RUN mvn dependency:go-offline -q
