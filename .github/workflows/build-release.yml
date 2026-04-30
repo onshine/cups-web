@@ -24,6 +24,13 @@ jobs:
           - goos: linux
             goarch: arm64
             suffix: linux-arm64
+          - goos: linux
+            goarch: arm
+            goarm: '7'
+            suffix: linux-armv7
+          - goos: linux
+            goarch: loong64
+            suffix: linux-loong64
           - goos: darwin
             goarch: amd64
             suffix: darwin-amd64
@@ -41,7 +48,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.26'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -58,6 +65,7 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
           CGO_ENABLED: 0
         run: |
           go build -ldflags="-s -w" -o cups-web-${{ matrix.suffix }} ./cmd/server

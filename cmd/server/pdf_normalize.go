@@ -100,6 +100,33 @@ func summarizeToolError(tool string, err error) string {
 	return tool + ": " + err.Error()
 }
 
+// cidfmapPreambleArgs 返回显式加载 cidfmap.local 需要的 gs 命令行参数。
+//
+// 只有当 /etc/ghostscript/cidfmap.local 真实存在时才返回参数（Docker 镜像里由
+// Dockerfile 在 runtime 阶段写入），macOS 本地开发机没有这个文件时返回 nil，
+// 让 gs 按默认行为运行（macOS brew 装的 gs 自带 DroidSansFallback，开发环境
+// 不会踩到 GBK 空壳字体乱码的问题）。
+//
+// 加载方式采用 gs 官方推荐的 "-I<搜索路径>" + "-c '(文件名) .runlibfile'"：
+//   - -I 把 /etc/ghostscript 加入 gs 的资源搜索路径
+//   - .runlibfile 在"资源加载"上下文里解释 cidfmap.local，其中 `;` 终止符合法；
+//     直接用 `(文件名) run` 会让 gs 新 PDF 解释器（-dNEWPDF=true 默认）把 `;`
+//     当未定义算子，抛 /undefined in ;
+//
+// 参考：/usr/share/ghostscript/*/doc/Use.htm#CIDFontSubstitution
+var cidfmapSystemPath = "/etc/ghostscript/cidfmap.local"
+
+func cidfmapPreambleArgs() []string {
+	if _, err := os.Stat(cidfmapSystemPath); err != nil {
+		return nil
+	}
+	return []string{
+		"-I" + filepath.Dir(cidfmapSystemPath),
+		"-c", "(" + filepath.Base(cidfmapSystemPath) + ") .runlibfile",
+		"-f", // 结束 -c 的 PostScript 代码，后续是输入文件
+	}
+}
+
 // runGhostscriptNormalize 调用 `gs` 把 PDF 重写为兼容性更好的 1.4 版本并嵌入所有字体。
 //
 // 采用两档参数，第一档失败再自动尝试第二档：
@@ -114,6 +141,11 @@ func summarizeToolError(tool string, err error) string {
 //
 // 返回 (outputPath, cleanup, mode, err)。err 为 nil 时 mode ∈ {"strict","lenient"}。
 // 若 gs 二进制不在 PATH 中，直接返回错误以便上层降级到 LibreOffice / passthrough。
+//
+// 两档都会通过 cidfmapPreambleArgs 显式加载 /etc/ghostscript/cidfmap.local（若存在），
+// 把 Acrobat 导出的 GBK 字节 BaseFont（宋/黑/楷/仿宋）精准映射到镜像自带的 arphic/wqy
+// TrueType 字体，避免 gs 的 CIDFSubst 默认路径把所有 CJK 字体都坍缩成单一
+// DroidSansFallback 无衬线体（详见 Dockerfile 注释）。
 func runGhostscriptNormalize(ctx context.Context, inputPath string) (string, func(), string, error) {
 	gsBin, err := exec.LookPath("gs")
 	if err != nil {
@@ -160,6 +192,15 @@ func runGhostscriptNormalize(ctx context.Context, inputPath string) (string, fun
 
 // tryGhostscriptRun 以给定参数集合执行一次 gs pdfwrite，成功时返回输出路径与清理函数。
 // 失败时自动清理临时目录并返回"首行错误"摘要，避免 gs 堆栈几十行污染日志。
+//
+// 最终命令行顺序：
+//
+//	gs <extraArgs...> [-I/etc/ghostscript -c "(cidfmap.local) .runlibfile" -f] \
+//	   -sOutputFile=<tmp>/normalized.pdf <inputPath>
+//
+// cidfmap preamble 只有在 /etc/ghostscript/cidfmap.local 真实存在（Docker runtime）
+// 时才会插入，macOS 本地开发机上 cidfmapPreambleArgs() 返回 nil，命令行退化为
+// 和没打补丁前完全一致，不会影响本地调试。
 func tryGhostscriptRun(ctx context.Context, gsBin string, extraArgs []string, inputPath string, label string) (string, func(), error) {
 	tmpDir, err := os.MkdirTemp("", "pdf-normalize-gs-")
 	if err != nil {
@@ -169,6 +210,7 @@ func tryGhostscriptRun(ctx context.Context, gsBin string, extraArgs []string, in
 	outPath := filepath.Join(tmpDir, "normalized.pdf")
 
 	args := append([]string{}, extraArgs...)
+	args = append(args, cidfmapPreambleArgs()...)
 	args = append(args, "-sOutputFile="+outPath, inputPath)
 
 	start := time.Now()

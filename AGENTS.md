@@ -34,7 +34,7 @@
 | 图标 | `@iconify-json/lucide` |
 | PDF 处理 | `pdfjs-dist`（预览，PDF 生成统一交由后端 `/api/convert`） |
 | HEIC 兼容 | `heic2any` |
-| 包管理 | Bun（推荐） |
+| 包管理 | 本地开发推荐 Bun（`bun install` / `bun run dev`）；CI 与 Docker 镜像统一用 npm（`npm ci` + `npm run build`），以同时覆盖 `linux/arm/v7` 架构——Bun 官方不支持 32-bit ARM（见部署章节） |
 
 ### 外部依赖
 
@@ -43,7 +43,7 @@
 | CUPS | 打印服务，通过 IPP 通信 |
 | LibreOffice（headless） | Office 文档 → PDF；同时作为 PDF 标准化的兜底链路 |
 | Java 17 + `ofd-converter.jar` | OFD 文档 → PDF（基于 `ofdrw`） |
-| Ghostscript (`gs`) | PDF 标准化首选链路：统一降级到 PDF 1.4 兼容性（主要面向 CUPS/老打印机对新版 PDF 解析能力弱的场景）。**注意：`gs pdfwrite` 会对原 PDF 的每个字体对象强行加上 subset 前缀（`CCGWER+` 之类 6 位随机码）并重建字体字典**，对"空壳 Type0 字体 + `UniGB-UCS2-H` 外部 CMap"（Acrobat 导出的准考证/国标表格最常见的形态）是**破坏性改造**：原 PDF 的 `/BaseFont /#ba#da#cc#e5`（宋体 GBK 字节转义）会被改写成 `/BaseFont /BPCXJX+#cb#ce#cc#e5`，让 pdf.js 等渲染器误以为有内嵌字形可用、走内嵌路径却拿不到真实 FontFile，字宽表 vs 字形度量对不上导致"先正确一闪、再错位挤压"。因此该链路**不是 PDF 预览乱码的解药**，只在 CUPS 驱动确认无法解析原字体字典时才有收益。本地 macOS 需要 `brew install ghostscript`；Docker 镜像需要同时装 `ghostscript` + `fonts-droid-fallback`（Debian 把 gs 兜底必备的 `Resource/CIDFSubst/DroidSansFallback.ttf` 剥离到独立包）。|
+| Ghostscript (`gs`) | PDF 标准化首选链路：统一降级到 PDF 1.4 兼容性（主要面向 CUPS/老打印机对新版 PDF 解析能力弱的场景）。**注意：`gs pdfwrite` 会对原 PDF 的每个字体对象强行加上 subset 前缀（`CCGWER+` 之类 6 位随机码）并重建字体字典**，对"空壳 Type0 字体 + `UniGB-UCS2-H` 外部 CMap"（Acrobat 导出的准考证/国标表格最常见的形态）是**破坏性改造**：原 PDF 的 `/BaseFont /#ba#da#cc#e5`（宋体 GBK 字节转义）会被改写成 `/BaseFont /BPCXJX+#cb#ce#cc#e5`，让 pdf.js 等渲染器误以为有内嵌字形可用、走内嵌路径却拿不到真实 FontFile，字宽表 vs 字形度量对不上导致"先正确一闪、再错位挤压"。因此该链路**不是 PDF 预览乱码的解药**，只在 CUPS 驱动确认无法解析原字体字典时才有收益。本地 macOS 需要 `brew install ghostscript`；Docker 镜像里给 gs 配了**三层中文字体兜底**（见 `Dockerfile` 注释）：①`/etc/ghostscript/cidfmap.local` 把 GBK 字节 BaseFont（宋/黑/楷/仿宋 × Regular/Bold，共 8 条）精准映射到 `arphic-uming` / `arphic-ukai` / `wqy-zenhei` 这三套**纯 TrueType**字体，并由 `pdf_normalize.go::cidfmapPreambleArgs` 在每次 gs 调用时显式用 `-I/etc/ghostscript -c "(cidfmap.local) .runlibfile"` 加载，不依赖任何"Debian 自动合并"约定；②`fonts-droid-fallback` 作为 cidfmap 未命中时的 Adobe-GB1 CID 兜底（Debian 把 gs 依赖的 `DroidSansFallback.ttf` 剥离到独立包）；③`fonts-noto-cjk` 等 Unicode 字形包仅服务 LibreOffice 渲染 Office 文档，不参与 CIDFSubst 路径。之所以只用 arphic/wqy 而不用 Noto CJK OTC，是因为 gs 10.x 对 CFF-based OpenType Collection 的 CIDFont 子字体索引偶有坑，纯 TrueType 最稳。|
 
 ## 📁 项目结构
 
@@ -250,6 +250,8 @@ KV 表：`key TEXT PRIMARY KEY` + `value TEXT`。
 
 > ⚠️ 已知副作用：Acrobat 导出的"空壳 Type0 + `UniGB-UCS2-H`"字体字典（`/BaseFont /#ba#da#cc#e5` 这种裸宋体名，准考证/国标表格常见）经 gs 改写为"subset 前缀 + FontFile2 假内嵌"后（`/BaseFont /CCGWER+#ba#da#cc#e5`），**pdf.js** 预览会出现"每 3-4 字错 1 字"的挤压错位（浏览器原生 PDF 引擎因有系统字体兜底不受影响）。之所以仍然共用 `normalizePDF`，是因为"预览与打印看到同一份字节流"的一致性比这类特殊 PDF 的预览准确性更重要——前端只使用 `pdfjs-dist` 在 canvas 里渲染预览（见 `frontend/src/components/print/PdfCanvas.vue`），遇到上述错位时用户可以忽略，不影响打印。
 
+> 🖨️ 打印纸面中文字形的配套：Docker 镜像通过 `Dockerfile` 里写入的 `/etc/ghostscript/cidfmap.local` 把宋/黑/楷/仿宋（Regular + Bold，共 8 条 GBK 字节 BaseFont）显式映射到 `arphic-uming` / `arphic-ukai` / `wqy-zenhei` 三套 TrueType 字体，让 gs pdfwrite 在重建字体字典时能按字体名落到不同字形上，而不是全部坍缩成单一 `DroidSansFallback` 无衬线体。加载方式在 `pdf_normalize.go::cidfmapPreambleArgs` 实现——每次 gs 调用都显式传入 `-I/etc/ghostscript -c "(cidfmap.local) .runlibfile" -f`，不依赖 Debian gs 的自动合并约定（不同版本行为差异大）；cidfmap 文件不存在时 preamble 为空，兼容 macOS 本地开发。由于 arphic/wqy 都是**单字重字库**，gs 也不做 synthetic bold，Bold 变体只能通过"换字体制造视觉粗细差"——当前策略是宋体 Bold / 仿宋 Bold → `wqy-zenhei`（本镜像最粗的中文字体），黑体/楷体的 Bold 与 Regular 同源、视觉一致，属字库本身限制。诊断方式：`gs -dPDFDEBUG -I/etc/ghostscript -c "(cidfmap.local) .runlibfile" -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sOutputFile=/tmp/out.pdf <in.pdf> 2>&1 | grep -E "Substituting|CIDFSubst"`，命中 cidfmap 会看到 `Substituting font ... from /usr/share/fonts/truetype/...`；未命中才回落到 `DroidSansFallback`。新增映射条目时，GBK 字节 → PostScript name 换算关系：宋体=`cb ce cc e5`、黑体=`ba da cc e5`、楷体=`bf ac cc e5`、仿宋=`b7 c2 cb ce`，CSI 固定用 `[(GB1) 2]`。
+
 ### HTTP 超时
 
 `cmd/server/main.go` 的 `http.Server` 配置为 `ReadTimeout = WriteTimeout = IdleTimeout = 120s`。之所以放宽到 2 分钟，是因为 `/api/convert` 与 `/api/print` 在移动端场景需要：上传 10MB+ 原图 → 服务端下采样/标准化 → 回传 PDF，整条链路在 4G 网络下 15s 远远不够（[Issue #22](https://github.com/hanxi/cups-web/issues/22)）。如果未来要对个别接口设置更激进的独立超时，建议用 `http.TimeoutHandler` 包住具体子路由，而不是再调低全局值。
@@ -316,19 +318,26 @@ Vite 已配置 `manualChunks`：
 
 ### Docker 多阶段构建
 
-`Dockerfile` 有三个构建阶段：
+`Dockerfile` 有三个构建阶段，**全部覆盖 `linux/amd64` + `linux/arm64` + `linux/arm/v7` 三架构**：
 
-1. `frontend-build`（`oven/bun`）：构建 Vite dist
-2. `java-builder`（`maven:3.9-eclipse-temurin-17`）：构建 `ofd-converter.jar`
-3. `builder`（`golang:1.26`）：`go build` 输出二进制
+1. `frontend-build`（`node:20-slim` + `npm`）：`npm ci` + `vite build` 出 Vite dist
+2. `java-builder`（`debian:bookworm-slim` + apt `openjdk-17-jdk-headless` + `maven`）：构建 `ofd-converter.jar`
+3. `builder`（`golang:1.26`）：`go build` 输出二进制（`CGO_ENABLED=0`）
 
 运行阶段使用 `debian:bookworm-slim`，装上 LibreOffice（core/writer/calc/impress）+ JRE 17 + 中文字体（`fonts-noto-cjk`、`fonts-wqy-zenhei`、`fonts-arphic-*`），以 `nonroot` 用户运行。
 
+> 💡 **关于三架构覆盖的基础镜像选型**：最初 `frontend-build` 用 `oven/bun`、`java-builder` 用 `maven:3.9-eclipse-temurin-17`，但这两个基础镜像都不支持 32-bit ARM：
+> - `oven/bun`：Bun 官方明确不支持 32-bit ARM（[oven-sh/bun#5060](https://github.com/oven-sh/bun/issues/5060) "Closed as not planned"，仅 arm64/x64）。**替代方案**：切到 `node:20-slim`（官方 manifest 覆盖 `amd64`/`arm32v7`/`arm64v8`），用 `npm ci` + `npm run build` 替换 `bun install` + `bun run build`；前端 `package.json` 里 scripts 全是标准 Vite/Node 命令，不依赖 bun 专有 API，迁移无业务代码改动。代价是必须维护 `frontend/package-lock.json`（和 `bun.lock` 并存；`npm ci` 要求 lockfile 与 `package.json` 严格一致，开发时如果用 `bun add` / `bun remove` 改了依赖，需同步跑一次 `npm install` 更新 `package-lock.json` 再提交，否则 CI 会在 `npm ci` 阶段挂掉）。
+> - `maven:3.9-eclipse-temurin-17`：Eclipse Temurin 对 "Linux ARM 32-bit Hard-Float" 仅 JDK 8/11 有二进制，JDK 17/21/25 [官方明确 Not Supported](https://adoptium.net/supported-platforms)；Maven 官方镜像同样没有 armhf manifest。**替代方案**：以 `debian:bookworm-slim` 为基础 apt 安装 `openjdk-17-jdk-headless` + `maven`（[Debian bookworm armhf 仓库](https://packages.debian.org/bookworm/java/)三架构通吃），`ofd-converter` 的 `maven.compiler.source=1.8` 与 JDK 17 完全兼容。代价是 java-builder 阶段体积略大（比原 `eclipse-temurin-17` 多装 `maven` 包 + 依赖树），但因 `builder` / `runtime` 阶段不会把它 `COPY` 进最终镜像（只 COPY 产物 `ofd-converter.jar`），所以**不影响最终镜像大小**。
+
 ### CI/CD
 
-`.github/workflows/` 会在 push 到任何分支和 tag 时，针对 5 个平台交叉编译二进制（`linux/amd64`、`linux/arm64`、`darwin/amd64`、`darwin/arm64`、`windows/amd64`），tag push 时自动创建 Release。
+`.github/workflows/` 会在 push 到任何分支和 tag 时，针对 7 个平台交叉编译二进制（`linux/amd64`、`linux/arm64`、`linux/armv7`、`linux/loong64`、`darwin/amd64`、`darwin/arm64`、`windows/amd64`），tag push 时自动创建 Release。CI 使用的 Go 版本（`setup-go` 的 `go-version`）与 `go.mod` 保持一致（当前均为 `1.26`），升级 `go.mod` 时请同步 CI。
 
-> ⚠️ 当前 CI 的 `setup-go` 仍固定为 `'1.24'`，与 `go.mod` 的 `1.26` 不一致；若改动触发了新版本语法需同步升级 CI 的 Go 版本。
+> 💡 补充说明：
+> - `linux/armv7` 使用 `GOARCH=arm` + `GOARM=7`，覆盖树莓派 2/3、主流 ARM SBC 等 32 位硬浮点设备；matrix 里通过 `goarm` 字段声明，Build 步骤已把 `GOARM` 透传到 `env`（其他非 arm 目标此字段为空不生效）。
+> - `linux/loong64` 依赖 `modernc.org/sqlite` ≥ `v1.34`（`v1.29.0` 尚未支持 loong64 架构）。
+> - 由于全仓严格 `CGO_ENABLED=0`，新增其他 modernc 已支持的架构（`riscv64` / `s390x` / `ppc64le` 等）只需往 `build-release.yml` 的 matrix 里加一行 `goos/goarch/suffix`，无需额外工具链。
 
 ### 版本管理
 
