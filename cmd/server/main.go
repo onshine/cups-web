@@ -71,6 +71,9 @@ func main() {
 	api.HandleFunc("/csrf", CSRFHandler).Methods("GET")
 	// session endpoint used by frontend to detect existing session on page load
 	api.HandleFunc("/session", SessionHandler).Methods("GET")
+	// 公开的版本接口：前端在登录页与主界面 footer 上展示，
+	// 用户二进制覆盖升级后无需登录即可确认当前运行版本（Issue #26）。
+	api.HandleFunc("/version", VersionHandler).Methods("GET")
 
 	protected := api.PathPrefix("").Subrouter()
 	protected.Use(middleware.RequireSession)

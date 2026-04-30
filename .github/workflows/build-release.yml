@@ -61,14 +61,27 @@ jobs:
           bun install
           bunx vite build
 
+      - name: Resolve version
+        id: ver
+        # tag 推送时 github.ref_name 就是 tag 名（vX.Y.Z），分支推送时是分支名。
+        # 再用 git describe 兜底，保证 workflow_dispatch 手动触发时也能拿到一个合理的版本字符串。
+        run: |
+          VERSION="${{ github.ref_name }}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "master" ] || [ "$VERSION" = "main" ]; then
+            VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Using VERSION=$VERSION"
+
       - name: Build binary
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm }}
           CGO_ENABLED: 0
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          go build -ldflags="-s -w" -o cups-web-${{ matrix.suffix }} ./cmd/server
+          go build -ldflags="-s -w -X main.Version=${VERSION}" -o cups-web-${{ matrix.suffix }} ./cmd/server
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

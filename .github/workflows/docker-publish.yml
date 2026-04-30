@@ -66,6 +66,10 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
+          # 把 github.ref_name 透传给 Dockerfile 的 ARG VERSION，
+          # 最终通过 -ldflags "-X main.Version=..." 注入到二进制（Issue #26）。
+          build-args: |
+            VERSION=${{ github.ref_name }}
           tags: |
             hanxi/cups-web:${{ github.ref_name }}${{ github.ref_type == 'tag' && '
             hanxi/cups-web:latest' || '' }}

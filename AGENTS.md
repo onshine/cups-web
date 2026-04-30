@@ -122,6 +122,7 @@ cups-web/
 | POST | `/api/logout` | 清除 session 与 csrf cookie |
 | GET | `/api/csrf` | 手动刷新 csrf token |
 | GET | `/api/session` | 查询当前会话（未登录返回 401） |
+| GET | `/api/version` | 返回二进制构建期通过 `-ldflags -X main.Version` 注入的版本号；前端 footer 展示用（Issue #26） |
 
 ### 已登录用户接口
 

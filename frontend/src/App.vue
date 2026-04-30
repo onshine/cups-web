@@ -54,6 +54,12 @@
           Powered by
           <a href="https://github.com/hanxi/cups-web" target="_blank" class="text-primary hover:underline">cups-web</a>
         </span>
+        <span v-if="appVersion" class="text-default/40">·</span>
+        <!-- 版本号：二进制构建期由 -ldflags 注入到 main.Version，经 /api/version 返回。
+             用户二进制覆盖升级后，无需登录即可在 footer 上看到当前运行的版本（Issue #26）。 -->
+        <span v-if="appVersion" class="font-mono text-xs" :title="`cups-web ${appVersion}`">
+          {{ appVersion }}
+        </span>
         <span class="text-default/40">·</span>
         <button
           type="button"
@@ -114,8 +120,25 @@ const route = useRoute()
 const session = ref(null)
 const sessionLoaded = ref(false)
 const showSponsorModal = ref(false)
+// 二进制版本号：首次挂载时拉一次 /api/version（公开接口，不要求登录），
+// 失败时保持空字符串，footer 上的版本号节点会被 v-if 隐藏，不影响布局。
+const appVersion = ref('')
 
 const isAdmin = computed(() => session.value?.role === 'admin')
+
+async function loadVersion() {
+  try {
+    const resp = await fetch('/api/version', { credentials: 'include' })
+    if (resp.ok) {
+      const data = await resp.json()
+      if (data && typeof data.version === 'string') {
+        appVersion.value = data.version
+      }
+    }
+  } catch (e) {
+    // 版本号展示属于可降级的信息，静默失败即可
+  }
+}
 
 async function loadSession() {
   try {
@@ -155,5 +178,8 @@ async function logout() {
   onLogout()
 }
 
-onMounted(() => loadSession())
+onMounted(() => {
+  loadSession()
+  loadVersion()
+})
 </script>

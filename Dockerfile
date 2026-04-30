@@ -31,6 +31,13 @@ RUN mvn clean package -q -DskipTests
 FROM golang:1.26 AS builder
 WORKDIR /src
 
+# 构建期注入版本号（Issue #26）：
+#   - CI (docker-publish.yml) 会通过 `--build-arg VERSION=${{ github.ref_name }}` 传入
+#     形如 `v1.2.3` 的 tag 名；push master 分支时会传入分支名 `master`。
+#   - 本地 `make docker-build` 会把 `git describe --tags --always --dirty` 透传进来。
+#   - 未指定时保持空字符串，让 main.Version 保持默认 "dev"，便于区分"未注入"与"注入失败"。
+ARG VERSION=""
+
 # copy go modules and source
 COPY go.mod go.sum ./
 RUN go env -w GOPROXY=https://goproxy.cn,direct
@@ -40,7 +47,12 @@ COPY . .
 COPY --from=frontend-build /src/frontend/dist ./frontend/dist
 
 # Build the Go binary (frontend must be built before this step in CI/local)
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-s -w' -o /out/cups-web ./cmd/server
+# 只在 VERSION 非空时追加 `-X main.Version=...`，避免传入空值导致 ldflags 拼接出
+# `-X main.Version=` 这种含空值的不合法 flag（部分 Go 版本会把空值写成字面空串）。
+RUN CGO_ENABLED=0 GOOS=linux \
+    go build \
+      -ldflags="-s -w $([ -n \"$VERSION\" ] && echo \"-X main.Version=$VERSION\")" \
+      -o /out/cups-web ./cmd/server
 
 FROM debian:bookworm-slim AS runtime
 
