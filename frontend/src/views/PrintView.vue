@@ -124,6 +124,7 @@
           v-model:paperType="paperType"
           v-model:printScaling="printScaling"
           v-model:pageRange="pageRange"
+          v-model:pageSet="pageSet"
           v-model:mirror="mirror"
           :printing="printing"
         />
@@ -177,6 +178,7 @@ const paperSize = ref('A4')
 const paperType = ref('plain')
 const printScaling = ref('fit')
 const pageRange = ref('')
+const pageSet = ref('all')
 const mirror = ref(false)
 
 // ─── 状态 ─────────────────────────────────────────────────
@@ -601,6 +603,7 @@ async function uploadAndPrint() {
   form.append('paper_type', paperType.value)
   form.append('print_scaling', printScaling.value)
   if (pageRange.value.trim()) form.append('page_range', pageRange.value.trim())
+  if (pageSet.value && pageSet.value !== 'all') form.append('page_set', pageSet.value)
   if (mirror.value) form.append('mirror', 'true')
 
   printing.value = true

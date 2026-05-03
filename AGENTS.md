@@ -166,6 +166,7 @@ cups-web/
 | `paper_type` | `plain` / `photo` / `glossy` / `matte` / `envelope` / `cardstock` / `labels` / `auto` | 纸张类型 |
 | `print_scaling` | `auto` / `auto-fit` / `fit` / `fill` / `none` | 缩放策略 |
 | `page_range` | string | 页码范围，如 `1-5 8 10-12` |
+| `page_set` | `all` / `odd` / `even` | 页面子集（仅打奇数页 / 仅打偶数页）；在 `page_range` 截出的页序基础上再过滤，典型场景是**手动双面打印**——先打奇数页，把纸翻面放回后再打偶数页。对应 CUPS 的 `page-set` 属性（由 `pdftopdf` filter 处理），`all` 视为默认值、不会发送到 IPP 请求。前端留空或选「全部页」等同于 `all` |
 | `mirror` | `"true"` / `"false"` | 镜像打印 |
 
 ## 🗄️ 数据库

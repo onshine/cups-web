@@ -59,6 +59,7 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 	paperType := r.FormValue("paper_type")
 	printScaling := r.FormValue("print_scaling")
 	pageRange := r.FormValue("page_range")
+	pageSet := r.FormValue("page_set")
 	mirror := r.FormValue("mirror") == "true"
 
 	storedRel, storedAbs, err := saveUploadedFile(file, fh.Filename, uploadDir)
@@ -282,6 +283,7 @@ func printHandler(w http.ResponseWriter, r *http.Request) {
 		PaperType:    paperType,
 		PrintScaling: printScaling,
 		PageRange:    pageRange,
+		PageSet:      pageSet,
 		Mirror:       mirror,
 		Pages:        pages,
 	}

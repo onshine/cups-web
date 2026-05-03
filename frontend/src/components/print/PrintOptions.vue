@@ -86,6 +86,22 @@
               </UFormField>
             </div>
 
+            <!-- 页面子集（手动双面 / 分册排版） -->
+            <UFormField label="页面子集" hint="配合页面范围使用；手动双面可先打奇数页，翻面后再打偶数页">
+              <div class="flex rounded-lg border border-muted overflow-hidden">
+                <label
+                  v-for="item in pageSetItems"
+                  :key="item.value"
+                  class="flex-1 flex items-center justify-center gap-1.5 py-2 px-2 cursor-pointer text-sm transition"
+                  :class="pageSet === item.value ? 'bg-primary text-white font-medium' : 'hover:bg-elevated'"
+                >
+                  <input type="radio" :value="item.value" :checked="pageSet === item.value" class="sr-only" @change="$emit('update:pageSet', item.value)" />
+                  <UIcon :name="item.icon" class="w-3.5 h-3.5 shrink-0" />
+                  <span class="text-xs whitespace-nowrap">{{ item.label }}</span>
+                </label>
+              </div>
+            </UFormField>
+
             <!-- 镜像打印 -->
             <UFormField label="镜像打印">
               <label class="flex items-center gap-2 p-2 border rounded-lg cursor-pointer transition hover:bg-elevated w-fit"
@@ -114,6 +130,7 @@ const props = defineProps({
   paperType: { type: String, default: 'plain' },
   printScaling: { type: String, default: 'fit' },
   pageRange: { type: String, default: '' },
+  pageSet: { type: String, default: 'all' },
   mirror: { type: Boolean, default: false },
   printing: { type: Boolean, default: false }
 })
@@ -121,7 +138,7 @@ const props = defineProps({
 const emit = defineEmits([
   'update:isColor', 'update:duplex', 'update:copies',
   'update:paperSize', 'update:paperType', 'update:printScaling', 'update:pageRange',
-  'update:mirror'
+  'update:pageSet', 'update:mirror'
 ])
 
 const showAdvanced = ref(false)
@@ -133,6 +150,8 @@ const advancedSummary = computed(() => {
   const scaleLabel = scalingItems.find(i => i.value === props.printScaling)?.label || props.printScaling
   const parts = [sizeLabel, typeLabel, scaleLabel]
   if (props.pageRange) parts.push(`页码: ${props.pageRange}`)
+  const pageSetLabel = pageSetItems.find(i => i.value === props.pageSet)?.label
+  if (props.pageSet && props.pageSet !== 'all' && pageSetLabel) parts.push(pageSetLabel)
   if (props.mirror) parts.push('镜像')
   return parts.join(' / ')
 })
@@ -180,6 +199,12 @@ const scalingItems = [
   { label: '适应纸张', value: 'fit' },
   { label: '填充纸张', value: 'fill' },
   { label: '无缩放', value: 'none' }
+]
+
+const pageSetItems = [
+  { label: '全部页', value: 'all', icon: 'i-lucide-copy' },
+  { label: '仅奇数页', value: 'odd', icon: 'i-lucide-list-ordered' },
+  { label: '仅偶数页', value: 'even', icon: 'i-lucide-list-ordered' }
 ]
 
 function onPageRangeInput(val) {

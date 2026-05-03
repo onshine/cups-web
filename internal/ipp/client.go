@@ -24,6 +24,7 @@ type PrintJobOptions struct {
 	PaperType    string // "plain" | "photo" | "glossy" | "matte" | "envelope" | "cardstock" | "labels" | "auto"
 	PrintScaling string // "auto" | "auto-fit" | "fit" | "fill" | "none"
 	PageRange    string // e.g. "1-5 8 10-12"
+	PageSet      string // "all" | "odd" | "even" – CUPS page-set filter (typical use: manual duplex)
 	Mirror       bool   // mirror / horizontal flip
 	Pages        int    // total document pages (for job-impressions hint)
 }
@@ -110,6 +111,15 @@ func SendPrintJob(printerURI string, r io.Reader, mime string, username string, 
 			}
 			req.Job.Add(goipp.Attribute{Name: "page-ranges", Values: vals})
 		}
+	}
+
+	// Page set filter – CUPS-specific attribute handled by the pdftopdf filter.
+	// Used together with page-ranges (range is applied first, then odd/even is
+	// filtered). Typical use case: manual duplex – print odd pages, flip the
+	// paper stack, then print even pages. Default "all" is a no-op and therefore
+	// not sent on the wire.
+	if set := normalizePageSet(opts.PageSet); set != "" && set != "all" {
+		req.Job.Add(goipp.MakeAttribute("page-set", goipp.TagKeyword, goipp.String(set)))
 	}
 
 	// Mirror (best-effort)
@@ -213,6 +223,22 @@ func paperTypeToIPP(t string) string {
 		"labels":    "labels",
 	}
 	return m[t]
+}
+
+// normalizePageSet maps arbitrary user input to one of the CUPS-recognized
+// page-set values ("all" | "odd" | "even"). Returns an empty string for
+// unknown values so the caller can omit the IPP attribute entirely.
+func normalizePageSet(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "all":
+		return "all"
+	case "odd":
+		return "odd"
+	case "even":
+		return "even"
+	default:
+		return ""
+	}
 }
 
 // parsePageRange parses a page range string like "1-5 8 10-12" into [][2]int32 pairs.
