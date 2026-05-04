@@ -232,13 +232,17 @@ func tryGhostscriptRun(ctx context.Context, gsBin string, extraArgs []string, in
 
 // detectGhostscriptFontErrors 检查 gs 的 combined output 中是否包含字体相关错误。
 // gs 处理某些编码缺陷的 PDF 时，虽然 exit code 为 0，但 stderr 中会输出字体错误
-// （如 "error reading a stream"、"missing or bad /FontName"），此时输出 PDF 的文本
-// 很可能是乱码。返回首个匹配到的错误摘要（用于日志），无错误则返回空串。
+// （如 "error reading a stream"），此时输出 PDF 的文本很可能是乱码。
+// 返回首个匹配到的错误摘要（用于日志），无错误则返回空串。
+//
+// 注意："missing or bad /FontName" 不在检测列表中——这是 gs 对输入 PDF 的 FontDescriptor
+// 合规性警告（常见于 PowerPdf、老版 Acrobat 等工具生成的 PDF），不代表 gs 输出有问题。
+// 只要 cidfmap 或 CIDFSubst 能提供替代字体（日志中出现 "Loading CIDFont ... from ..."），
+// gs 的输出 PDF 就是完好的。
 func detectGhostscriptFontErrors(output string) string {
 	lower := strings.ToLower(output)
 	fontErrorPatterns := []string{
 		"error reading a stream",
-		"missing or bad /fontname",
 	}
 	for _, pattern := range fontErrorPatterns {
 		if idx := strings.Index(lower, pattern); idx != -1 {

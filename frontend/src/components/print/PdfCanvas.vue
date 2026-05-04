@@ -72,16 +72,21 @@ async function renderPage(pageNum) {
     // 容器尺寸无效时不渲染
     if (containerWidth <= 0 || containerHeight <= 0) return
 
+    const dpr = window.devicePixelRatio || 1
+
     const viewport = page.getViewport({ scale: 1 })
     const scaleX = containerWidth / viewport.width
     const scaleY = containerHeight / viewport.height
-    const scale = Math.min(scaleX, scaleY, 2)
+    const baseScale = Math.min(scaleX, scaleY, 2)
 
-    const scaledViewport = page.getViewport({ scale })
+    // 高清渲染：scale 乘以 DPR，canvas 实际像素更大，CSS 尺寸保持正常
+    const scaledViewport = page.getViewport({ scale: baseScale * dpr })
 
     const ctx = canvas.value.getContext('2d')
     canvas.value.width = scaledViewport.width
     canvas.value.height = scaledViewport.height
+    canvas.value.style.width = (scaledViewport.width / dpr) + 'px'
+    canvas.value.style.height = (scaledViewport.height / dpr) + 'px'
 
     renderTask = page.render({
       canvasContext: ctx,

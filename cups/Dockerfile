@@ -1,14 +1,12 @@
-# 固定到 debian:bookworm-slim（Debian 12）而不是 debian:stable-slim：
-# Debian 13 (trixie) 对 32-bit 架构（armhf / i386）做了 64-bit time_t ABI 迁移，
-# 把 libcups2 / libcupsimage2 / libpng16-16 / printer-driver-gutenprint 等包
-# 在 armhf 上替换成了 t64 后缀版本（`libcups2t64` / `libpng16-16t64` 等），
-# 旧包名已经没有 installation candidate —— 这会让 linux/arm/v7 构建直接炸在
-# apt-get install 这一步。amd64/arm64 不受影响是因为 64-bit 架构 time_t 本来
-# 就是 64 位，没有 ABI bump，旧名仍保留为过渡包。
-# bookworm 的 armhf 仓库上述包旧名都在，且 bookworm 也是主 Dockerfile runtime
-# 阶段的 base，两个镜像 base 对齐便于运维。
-# 跟随上游升级到 trixie 时，需要整体把受影响的包名改成 t64 版本并重测 armhf。
-FROM debian:bookworm-slim
+# 使用 debian:trixie-slim（Debian 13），与主 Dockerfile runtime 阶段的 base 镜像对齐。
+#
+# 历史说明：之前固定 bookworm 是因为 trixie 对 armhf 做了 64-bit time_t ABI 迁移，
+# 把 libcups2/libcupsimage2/libpng16-16 等包重命名为 t64 后缀版本。现在的做法是：
+# ① 不再显式安装这些低级库包——它们都是 cups/cups-filters 的依赖，apt 会自动
+#    根据架构拉取正确的包名（如 libcups2t64、libpng16-16t64 等）；
+# ② printer-driver-gutenprint 在 trixie armhf 上已无 binary（gutenprint 源码包
+#    未对 armhf 构建），因此改为条件安装——仅在 amd64/arm64 上装入。
+FROM debian:trixie-slim
 
 ARG TARGETARCH
 ARG TARGETVARIANT
@@ -21,26 +19,22 @@ ENV TZ=Asia/Shanghai
 ENV CUPSADMIN=print
 ENV CUPSPASSWORD=print
 
-# Install packages directly for the current architecture (do not pre-check availability)
+# 安装 CUPS 核心及常用打印驱动。
+# 低级库包（libcups2、libcupsimage2、libpng16-16、libjpeg62-turbo、libtiff6、
+# libusb-1.0-0）都是 cups/cups-filters 的传递依赖，apt 会根据架构自动解析到
+# 正确的包名（trixie armhf 上带 t64 后缀），因此不再显式列出。
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       wget \
       curl \
       gnupg2 \
       ca-certificates \
-      libcups2 \
-      libcupsimage2 \
       cups \
       cups-client \
       cups-filters \
-      libjpeg62-turbo \
-      libpng16-16 \
-      libtiff6 \
-      libusb-1.0-0 \
       lsb-release \
       apt-utils \
       usbutils \
-      printer-driver-gutenprint \
       printer-driver-all \
       printer-driver-cups-pdf \
       printer-driver-escpr \
@@ -52,6 +46,15 @@ RUN apt-get update && \
       hplip \
       avahi-daemon && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# printer-driver-gutenprint 在 trixie armhf 上没有 binary 包（gutenprint 的
+# 链接依赖 libgutenprint9 未完成 t64 迁移），仅在 amd64/arm64 上安装。
+# armhf 用户仍可通过 printer-driver-all 推荐的其他驱动覆盖大部分打印机。
+RUN if [ "${TARGETARCH}" != "arm" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends printer-driver-gutenprint && \
+      apt-get clean && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # Only install Epson proprietary driver on amd64; other architectures will use the Debian drivers
 RUN if [ "${TARGETARCH}" = "amd64" ]; then \
