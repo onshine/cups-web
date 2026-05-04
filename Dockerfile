@@ -166,6 +166,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
+# 自定义字体：用户可将 SimSun/SimHei 等 Windows 字体放入 docker-fonts/ 目录，
+# 构建时自动安装到镜像中，以获得更接近原始 PDF 的字体渲染效果。
+# 如果 docker-fonts/ 目录为空（只有 README.md），此步骤不会报错。
+COPY docker-fonts/ /tmp/docker-fonts/
+RUN mkdir -p /usr/share/fonts/truetype/custom && \
+    find /tmp/docker-fonts -type f \( -iname '*.ttf' -o -iname '*.ttc' -o -iname '*.otf' \) \
+      -exec cp {} /usr/share/fonts/truetype/custom/ \; && \
+    rm -rf /tmp/docker-fonts && \
+    fc-cache -f /usr/share/fonts/truetype/custom 2>/dev/null || true
+
 # 写入 Ghostscript cidfmap.local：把"空壳 PDF"里的 GBK 字节 BaseFont 精准映射到真实 TTF。
 #
 # 语法参考：/usr/share/ghostscript/*/Resource/Init/cidfmap（gs 官方示例）
@@ -218,6 +228,49 @@ RUN test -s /etc/ghostscript/cidfmap.local \
   && entries=$(grep -cE '^/#' /etc/ghostscript/cidfmap.local) \
   && echo "[dockerfile] cidfmap.local entries: $entries (expect 8)" \
   && test "$entries" = "8"
+
+# 如果用户提供了 SimSun/SimHei/SimKai/SimFang 字体，更新 cidfmap.local 映射，
+# 用真实 Windows 字体替换 arphic/wqy 的 fallback 映射，获得更精确的渲染效果。
+# 注意：仿宋和宋体的 Regular 都映射到 uming.ttc，sed 替换时通过匹配完整行来区分。
+RUN if [ -f /usr/share/fonts/truetype/custom/simsun.ttc ]; then \
+      sed -i 's|/usr/share/fonts/truetype/arphic/uming.ttc) /SubfontID 0|/usr/share/fonts/truetype/custom/simsun.ttc) /SubfontID 0|g' /etc/ghostscript/cidfmap.local; \
+      echo "[dockerfile] cidfmap: simsun.ttc mapped (宋体 Regular + 仿宋 Regular)"; \
+    fi && \
+    if [ -f /usr/share/fonts/truetype/custom/simhei.ttf ]; then \
+      sed -i 's|/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc) /SubfontID 0|/usr/share/fonts/truetype/custom/simhei.ttf) /SubfontID 0|g' /etc/ghostscript/cidfmap.local; \
+      echo "[dockerfile] cidfmap: simhei.ttf mapped (黑体 + Bold variants)"; \
+    fi && \
+    if [ -f /usr/share/fonts/truetype/custom/simkai.ttf ]; then \
+      sed -i 's|/usr/share/fonts/truetype/arphic/ukai.ttc) /SubfontID 0|/usr/share/fonts/truetype/custom/simkai.ttf) /SubfontID 0|g' /etc/ghostscript/cidfmap.local; \
+      echo "[dockerfile] cidfmap: simkai.ttf mapped (楷体)"; \
+    fi && \
+    if [ -f /usr/share/fonts/truetype/custom/simfang.ttf ]; then \
+      sed -i '/^\/#b7#c2#cb#ce /s|/usr/share/fonts/truetype/custom/simsun.ttc) /SubfontID 0|/usr/share/fonts/truetype/custom/simfang.ttf) /SubfontID 0|' /etc/ghostscript/cidfmap.local; \
+      sed -i '/^\/#b7#c2#cb#ce /s|/usr/share/fonts/truetype/arphic/uming.ttc) /SubfontID 0|/usr/share/fonts/truetype/custom/simfang.ttf) /SubfontID 0|' /etc/ghostscript/cidfmap.local; \
+      echo "[dockerfile] cidfmap: simfang.ttf mapped (仿宋 Regular)"; \
+    fi && \
+    # --- Noto 开源字体作为次优映射（优先级：simsun/simhei > Noto > arphic/wqy） ---
+    # 如果有 NotoSerifSC（思源宋体），用它替代 uming 作为宋体/仿宋 Regular 映射
+    if [ -f /usr/share/fonts/truetype/custom/NotoSerifSC-Regular.otf ]; then \
+      sed -i "s|/usr/share/fonts/truetype/arphic/uming.ttc) /SubfontID 0|/usr/share/fonts/truetype/custom/NotoSerifSC-Regular.otf) /SubfontID 0|g" /etc/ghostscript/cidfmap.local; \
+      echo "[dockerfile] cidfmap: NotoSerifSC-Regular.otf mapped for 宋体/仿宋 Regular"; \
+    fi && \
+    if [ -f /usr/share/fonts/truetype/custom/NotoSerifSC-Bold.otf ]; then \
+      # 宋体 Bold 和仿宋 Bold 原来映射到 wqy-zenhei，如果有 NotoSerifSC-Bold 则用它替代
+      # 但只替换宋体 Bold 行（/#cb#ce#cc#e5,Bold）和仿宋 Bold 行（/#b7#c2#cb#ce,Bold）
+      sed -i '/^\/#cb#ce#cc#e5,Bold/s|/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc) /SubfontID 0|/usr/share/fonts/truetype/custom/NotoSerifSC-Bold.otf) /SubfontID 0|' /etc/ghostscript/cidfmap.local; \
+      sed -i '/^\/#b7#c2#cb#ce,Bold/s|/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc) /SubfontID 0|/usr/share/fonts/truetype/custom/NotoSerifSC-Bold.otf) /SubfontID 0|' /etc/ghostscript/cidfmap.local; \
+      echo "[dockerfile] cidfmap: NotoSerifSC-Bold.otf mapped for 宋体/仿宋 Bold"; \
+    fi && \
+    # 如果有 NotoSansSC（思源黑体），用它替代 wqy-zenhei 作为黑体映射
+    if [ -f /usr/share/fonts/truetype/custom/NotoSansSC-Regular.otf ]; then \
+      sed -i '/^\/#ba#da#cc#e5 /s|/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc) /SubfontID 0|/usr/share/fonts/truetype/custom/NotoSansSC-Regular.otf) /SubfontID 0|' /etc/ghostscript/cidfmap.local; \
+      echo "[dockerfile] cidfmap: NotoSansSC-Regular.otf mapped for 黑体 Regular"; \
+    fi && \
+    if [ -f /usr/share/fonts/truetype/custom/NotoSansSC-Bold.otf ]; then \
+      sed -i '/^\/#ba#da#cc#e5,Bold/s|/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc) /SubfontID 0|/usr/share/fonts/truetype/custom/NotoSansSC-Bold.otf) /SubfontID 0|' /etc/ghostscript/cidfmap.local; \
+      echo "[dockerfile] cidfmap: NotoSansSC-Bold.otf mapped for 黑体 Bold"; \
+    fi
 
 # 将 cidfmap.local 复制到 Ghostscript 的标准资源路径 Resource/Init/，让 gs 启动时自动加载。
 # gs 10.x 的 `-c "(cidfmap.local) .runlibfile"` 机制已不可用（.runlibfile 操作符不存在，
