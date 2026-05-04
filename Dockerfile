@@ -36,14 +36,14 @@ RUN npm run build
 # 最佳实践，也是 `BUILDPLATFORM` 这个自动变量最典型的用法。
 #
 # 其他保留说明：
-# - 基础镜像仍用 debian:bookworm-slim（和 runtime 阶段统一，减少下载层）；
+# - 基础镜像使用 debian:trixie-slim（和 runtime 阶段统一，减少下载层）；
 # - Maven 仍用 Apache 官方 tarball（`apt install maven` 依赖 dpkg triggers 更新
 #   update-alternatives 软链，虽然 host amd64 不会触发 QEMU 坑，但 tarball 方式更自包含，
 #   跨 base 镜像升级无副作用）；
 # - 即便某天 GitHub Actions 的 runner 换成 arm64/linux，`BUILDPLATFORM` 也会自动跟随，
 #   那时 amd64 的 runtime 反而要 QEMU 模拟 java-builder——但 amd64 上的 JVM 远比 armhf 稳，
 #   在实践中是可接受的。真正要彻底脱离 QEMU，只能靠 GH Actions 的 multi-runner 矩阵拆分。
-FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS java-builder
+FROM --platform=$BUILDPLATFORM debian:trixie-slim AS java-builder
 ENV DEBIAN_FRONTEND=noninteractive
 ENV MAVEN_VERSION=3.9.9
 ENV MAVEN_HOME=/opt/maven
@@ -54,7 +54,7 @@ ENV PATH=/opt/maven/bin:$PATH
 # 2) Fallback 到 archive.apache.org/dist/maven/...（永久归档，所有历史版本都在）。
 # 这样日常走 CDN 快，被 dlcdn 抛弃后自动用归档也能跑通，升级 Maven 时只需改 MAVEN_VERSION。
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      openjdk-17-jdk-headless ca-certificates curl \
+      openjdk-21-jdk-headless ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && ( \
         curl -fsSL "https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o /tmp/maven.tar.gz \
@@ -108,7 +108,7 @@ RUN CGO_ENABLED=0 GOOS=linux \
       -ldflags="-s -w -X main.Version=$VERSION" \
       -o /out/cups-web ./cmd/server
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 
 # Install LibreOffice (headless conversion), Ghostscript, and minimal fonts/certificates
 #
@@ -147,20 +147,18 @@ FROM debian:bookworm-slim AS runtime
 #   不能替代第 1/2 层在 gs CIDFSubst 路径的角色。
 #
 # === cidfmap.local 的加载路径（重要） ============================================
-# 我们把文件写到 /etc/ghostscript/cidfmap.local，并依靠 `pdf_normalize.go` 里的 gs
-# 调用显式传入 `-I/etc/ghostscript` + `-c "(cidfmap.local) .runlibfile"`，不依赖任何
-# "Debian 自动合并"的约定（不同 gs 版本、不同 Debian patch 的自动加载行为差异很大，
-# 最保险是调用侧显式指定）。`.runlibfile` 运行在 gs 的资源加载上下文里，`;` 终止符
-# 合法，不会踩到新 PDF 解释器 `-dNEWPDF=true` 下 `/undefined in ;` 的坑。
+# 我们把文件写到 /etc/ghostscript/cidfmap.local，并在构建阶段将其复制为
+# gs Resource/Init/cidfmap，trixie 的 gs 10.05.1 默认不存在该文件，
+# 直接创建后 gs 启动时自动加载，无需任何额外命令行参数。
 #
 # === 诊断命令 =====================================================================
-#   gs -dPDFDEBUG -I/etc/ghostscript -c "(cidfmap.local) .runlibfile" \
+#   gs -dPDFDEBUG \
 #      -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sOutputFile=/tmp/out.pdf <in.pdf> 2>&1 \
 #      | grep -E "Substituting|CIDFSubst|Loading CIDFont"
 #   - 命中 cidfmap.local 时日志出现：Substituting font <宋体> from /usr/share/fonts/...
 #   - 未命中 cidfmap.local、走第 2 层兜底时出现：substitute from .../DroidSansFallback.ttf
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libreoffice-core libreoffice-writer libreoffice-calc libreoffice-impress openjdk-17-jre \
+    libreoffice-core libreoffice-writer libreoffice-calc libreoffice-impress openjdk-21-jre \
     ghostscript fonts-droid-fallback \
     fonts-dejavu-core fonts-noto-cjk fonts-arphic-uming fonts-arphic-ukai fonts-wqy-zenhei \
     ca-certificates \
@@ -173,10 +171,15 @@ COPY docker-fonts/ /tmp/docker-fonts/
 RUN mkdir -p /usr/share/fonts/truetype/custom && \
     find /tmp/docker-fonts -type f \( -iname '*.ttf' -o -iname '*.ttc' -o -iname '*.otf' \) \
       -exec cp {} /usr/share/fonts/truetype/custom/ \; && \
-    rm -rf /tmp/docker-fonts && \
     fc-cache -f /usr/share/fonts/truetype/custom 2>/dev/null || true
 
-# 写入 Ghostscript cidfmap.local：把"空壳 PDF"里的 GBK 字节 BaseFont 精准映射到真实 TTF。
+# 安装 fontconfig 中文字体别名配置（从 docker-fonts/fontconfig-chinese.conf 复制）
+# 原因：LibreOffice fallback 渲染路径依赖 fontconfig 查找"宋体""黑体"等中文字体名
+# simsun.ttc 因 fontconfig 兼容性问题无法被索引，宋体回退到 SimHei
+RUN cp /tmp/docker-fonts/fontconfig-chinese.conf /etc/fonts/conf.d/05-custom-chinese-fonts.conf 2>/dev/null || true
+RUN fc-cache -f 2>/dev/null || true
+
+# 安装 Ghostscript cidfmap.local（从 docker-fonts/cidfmap.local 复制）
 #
 # 语法参考：/usr/share/ghostscript/*/Resource/Init/cidfmap（gs 官方示例）
 # 用 /#xx 十六进制 name 转义表示 GBK 字节：
@@ -185,41 +188,9 @@ RUN mkdir -p /usr/share/fonts/truetype/custom && \
 #   楷体 = BF AC CC E5  →  /#bf#ac#cc#e5
 #   仿宋 = B7 C2 CB CE  →  /#b7#c2#cb#ce
 # CSI 固定为 [(GB1) 2] = Adobe-GB1-2，覆盖 GB2312/GBK 常用汉字。
-#
-# 使用 BuildKit heredoc 格式 `RUN <<EOF` 写入文件（Dockerfile frontend 1.3+ 支持）。
-# 注意：不能再用 `RUN cat > file <<'EOF'` 这种 shell heredoc 混合 Dockerfile 指令的
-# 写法——后者会让 Docker parser 把 heredoc body 当成下一条 Dockerfile 指令（以 `%!` 开头
-# 报 `unknown instruction`）。
-RUN <<'CIDFMAP' tee /etc/ghostscript/cidfmap.local > /dev/null
-%!
-% ---- cidfmap.local: GBK-byte BaseFont 显式映射到 arphic / wqy TrueType 字体 ----
-% 本文件由 cups-web Dockerfile 生成，不要手工编辑。
-% 通过 `pdf_normalize.go` 里 gs 命令行的 `-I/etc/ghostscript` + `.runlibfile` 显式加载。
-%
-% 映射命中后 gs pdfwrite 生成的 PDF 里对应字体会走这里指定的字形，而不是
-% 默认的 DroidSansFallback（唯一无衬线字重）。
-%
-% 策略说明：arphic / wqy 是单字重字库，没有 Bold 配套文件，gs 也不会做 synthetic bold。
-% 因此 Bold 变体通过"映射到另一套更粗的字体"来制造视觉粗细差（宋体 Bold → wqy，
-% 仿宋 Bold → wqy）；wqy-zenhei 本身就是本镜像里最粗的中文字体，没有更粗的可换，
-% 所以黑体/楷体的 Bold 与 Regular 视觉相同，属于字库本身的限制。
-
-% 宋体 (CB CE CC E5)
-/#cb#ce#cc#e5 << /FileType /TrueType /Path (/usr/share/fonts/truetype/arphic/uming.ttc) /SubfontID 0 /CSI [(GB1) 2] >> ;
-/#cb#ce#cc#e5,Bold << /FileType /TrueType /Path (/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc) /SubfontID 0 /CSI [(GB1) 2] >> ;
-
-% 黑体 (BA DA CC E5)
-/#ba#da#cc#e5 << /FileType /TrueType /Path (/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc) /SubfontID 0 /CSI [(GB1) 2] >> ;
-/#ba#da#cc#e5,Bold << /FileType /TrueType /Path (/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc) /SubfontID 0 /CSI [(GB1) 2] >> ;
-
-% 楷体 (BF AC CC E5)
-/#bf#ac#cc#e5 << /FileType /TrueType /Path (/usr/share/fonts/truetype/arphic/ukai.ttc) /SubfontID 0 /CSI [(GB1) 2] >> ;
-/#bf#ac#cc#e5,Bold << /FileType /TrueType /Path (/usr/share/fonts/truetype/arphic/ukai.ttc) /SubfontID 0 /CSI [(GB1) 2] >> ;
-
-% 仿宋 (B7 C2 CB CE)
-/#b7#c2#cb#ce << /FileType /TrueType /Path (/usr/share/fonts/truetype/arphic/uming.ttc) /SubfontID 0 /CSI [(GB1) 2] >> ;
-/#b7#c2#cb#ce,Bold << /FileType /TrueType /Path (/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc) /SubfontID 0 /CSI [(GB1) 2] >> ;
-CIDFMAP
+RUN mkdir -p /etc/ghostscript && \
+    cp /tmp/docker-fonts/cidfmap.local /etc/ghostscript/cidfmap.local && \
+    rm -rf /tmp/docker-fonts
 # 构建期自检：确保文件写入成功、条目数对得上。不在构建期用 gs 解析这个文件，因为
 # `.runlibfile` 必须配合 `-I` 才能工作，而且 gs 加载资源要占用额外的子进程空间，
 # 运行时首次 gs 调用会做真正的解析验证，构建期只做结构性检查。
@@ -250,16 +221,14 @@ RUN if [ -f /usr/share/fonts/truetype/custom/simsun.ttc ]; then \
       echo "[dockerfile] cidfmap: simfang.ttf mapped (仿宋 Regular)"; \
     fi
 
-# 将 cidfmap.local 复制到 Ghostscript 的标准资源路径 Resource/Init/，让 gs 启动时自动加载。
-# gs 10.x 的 `-c "(cidfmap.local) .runlibfile"` 机制已不可用（.runlibfile 操作符不存在，
-# 且 `-c ... -f` 会吞掉后续 `-sOutputFile=` 参数），改用 gs 自动加载机制。
-# 使用 find 查找 Resource/Init 目录，兼容不同 gs 版本的安装路径。
-RUN find /usr/share/ghostscript -name "Resource" -type d 2>/dev/null | while read d; do \
-        if [ -d "$d/Init" ]; then \
-            cp /etc/ghostscript/cidfmap.local "$d/Init/cidfmap.local" && \
-            echo "[dockerfile] cidfmap.local -> $d/Init/cidfmap.local"; \
-        fi; \
-    done
+# 将 cidfmap.local 作为 gs 的默认 cidfmap 安装到 Resource/Init/
+# trixie 的 gs 10.05.1 默认不存在 cidfmap（只有 FAPIcidfmap），直接创建即可。
+# gs 启动时自动加载 Resource/Init/cidfmap，无需额外命令行参数。
+RUN GS_INIT_DIR=$(find /usr/share/ghostscript -path "*/Resource/Init" -type d | head -1) && \
+    if [ -n "$GS_INIT_DIR" ] && [ -f /etc/ghostscript/cidfmap.local ]; then \
+        cp /etc/ghostscript/cidfmap.local "$GS_INIT_DIR/cidfmap" && \
+        echo "[dockerfile] cidfmap.local -> $GS_INIT_DIR/cidfmap"; \
+    fi
 
 # Create a non-root user for running the service
 RUN groupadd -r nonroot && useradd -r -g nonroot nonroot

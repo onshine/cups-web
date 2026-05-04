@@ -100,29 +100,24 @@ func summarizeToolError(tool string, err error) string {
 	return tool + ": " + err.Error()
 }
 
-// cidfmapPreambleArgs 返回显式加载 cidfmap.local 需要的 gs 命令行参数。
+// cidfmapPreambleArgs 返回 gs 调用时需要的额外搜索路径参数。
 //
-// 只有当 /etc/ghostscript/cidfmap.local 真实存在时才返回参数（Docker 镜像里由
-// Dockerfile 在 runtime 阶段写入），macOS 本地开发机没有这个文件时返回 nil，
-// 让 gs 按默认行为运行（macOS brew 装的 gs 自带 DroidSansFallback，开发环境
-// 不会踩到 GBK 空壳字体乱码的问题）。
+// gs 10.x（trixie）中 cidfmap 已在 Dockerfile 构建时安装到 Resource/Init/cidfmap，
+// gs 启动时自动加载，无需 `-c "(cidfmap.local) .runlibfile"` 等额外命令行参数。
+// 仅保留 -I 搜索路径作为本地开发兼容（若 cidfmap.local 存在于 /etc/ghostscript/）。
 //
 // cidfmapSystemPath 指向 Docker 镜像中写入的 cidfmap.local 文件。
-// cidfmapPreambleArgs 在每次 gs 调用时显式用
-// `-I/etc/ghostscript -c "(cidfmap.local) .runlibfile" -f` 加载，
-// 不依赖 Debian gs 的自动合并约定（不同版本行为差异大）；
-// cidfmap 文件不存在时 preamble 为空，兼容 macOS 本地开发。
+// 文件不存在时返回 nil，兼容 macOS 本地开发。
 var cidfmapSystemPath = "/etc/ghostscript/cidfmap.local"
 
 func cidfmapPreambleArgs() []string {
+	// gs 10.x 中 cidfmap 已在 Dockerfile 构建时安装到 Resource/Init/cidfmap，
+	// gs 启动时自动加载，无需额外命令行参数。
+	// 仅保留 -I 搜索路径作为本地开发兼容。
 	if _, err := os.Stat(cidfmapSystemPath); err != nil {
 		return nil
 	}
-	return []string{
-		"-I" + filepath.Dir(cidfmapSystemPath),
-		"-c", "(" + filepath.Base(cidfmapSystemPath) + ") .runlibfile",
-		"-f",
-	}
+	return []string{"-I" + filepath.Dir(cidfmapSystemPath)}
 }
 
 // runGhostscriptNormalize 调用 `gs` 把 PDF 重写为兼容性更好的 1.4 版本并嵌入所有字体。
@@ -140,10 +135,10 @@ func cidfmapPreambleArgs() []string {
 // 返回 (outputPath, cleanup, mode, err)。err 为 nil 时 mode ∈ {"strict","lenient"}。
 // 若 gs 二进制不在 PATH 中，直接返回错误以便上层降级到 LibreOffice / passthrough。
 //
-// 两档都会通过 cidfmapPreambleArgs 显式加载 /etc/ghostscript/cidfmap.local（若存在），
-// 把 Acrobat 导出的 GBK 字节 BaseFont（宋/黑/楷/仿宋）精准映射到镜像自带的 arphic/wqy
-// TrueType 字体，避免 gs 的 CIDFSubst 默认路径把所有 CJK 字体都坍缩成单一
-// DroidSansFallback 无衬线体（详见 Dockerfile 注释）。
+// 两档都会通过 cidfmapPreambleArgs 传入 -I 搜索路径（若 /etc/ghostscript/cidfmap.local 存在），
+// 配合 Dockerfile 构建时安装到 Resource/Init/cidfmap 的映射文件，让 gs 自动加载
+// Acrobat 导出的 GBK 字节 BaseFont（宋/黑/楷/仿宋）到镜像自带的 arphic/wqy
+// TrueType 字体的精准映射（详见 Dockerfile 注释）。
 func runGhostscriptNormalize(ctx context.Context, inputPath string) (string, func(), string, error) {
 	gsBin, err := exec.LookPath("gs")
 	if err != nil {
