@@ -198,7 +198,13 @@ RUN set -eo pipefail; \
     }; \
     mkdir src && cd src && \
     tar xzf ../escpr2.tar.gz --strip-components=1 && \
-    ./configure --prefix=/usr --disable-static && \
+    # ⚠️ gcc 15（Debian trixie 起）默认 C23，escpr2 源码里还保留了 C89/C99 风格的\
+    # 隐式函数声明（例如 bug_x86_64.patch 里声明 SendStartJob() 不带形参）、\
+    # 隐式 int 返回值等，在 C23 下由警告升级为硬错误，make 会以 exit 2 失败。\
+    # Arch AUR 社区在 2025-05 已确认修复方案：给 configure 传 `-std=gnu17`\
+    # 显式把语言标准回退到 C17，既保留 GNU 扩展又绕开 C23 严格模式。\
+    # 参考：https://bbs.archlinux.org/viewtopic.php?id=305318 \
+    ./configure --prefix=/usr --disable-static CFLAGS="-std=gnu17 -O2" && \
     make -j"$(nproc)" && \
     make install && \
     echo "[escpr2] installed version ${ESCPR2_VERSION}" && \
