@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Canon UFR II / UFRII LT 官方驱动：amd64 + arm64 best-effort 安装（issue #34）。
+#
+# 覆盖机型范围：i-SENSYS LBP / MF 系列、imageCLASS、imageRUNNER (iR) /
+# imagePRESS (iPR) 等所有走 UFR II / UFRII LT 协议的 Canon 激光机；新款
+# LBP 墨彩机型即便支持 driverless (IPP Everywhere)，装上原厂 PPD 后双面/
+# 分页/纸盒等高级选项才会齐全。
+#
+# ────────────────────────────────────────────────────────────────────
+# 架构覆盖说明
+# ────────────────────────────────────────────────────────────────────
+# Canon 官方 tarball（linux-UFRII-drv-vXXX-m17n-NN.tar.gz）从 v6.30 起
+# 解压后按架构分目录：
+#   x64/Debian/cnrdrvcups-ufr2-uk_<ver>_amd64.deb   → amd64
+#   ARM64/Debian/cnrdrvcups-ufr2-uk_<ver>_arm64.deb → arm64
+#   x86/Debian/cnrdrvcups-ufr2-uk_<ver>_i386.deb    → i386（Debian 已弃，不用）
+#   MIPS64/                                           → 龙芯/MIPS（本镜像不覆盖）
+# 没有任何 32-bit ARM (armhf/armel) 二进制；社区 vicamo/cndrvcups-lb 也
+# 只能在 x86/arm64 上 make——根因是核心 filter（`libcnpkbidir*.so` 等）
+# 是 Canon 不公开源码的闭源 .so。所以 armhf/armel 直接 skip，避免误导。
+#
+# 注意包名是 `cnrdrvcups-ufr2-uk`（cnrdrvcups，r 在 d 后），不是早期文档/
+# AUR 里写的 `cndrvcups-ufr2-*`——v6.30 的 Debian 包合并了原 cndrvcups-common
+# 与 cndrvcups-ufr2-uk 两个包，单一 .deb 即可。
+#
+# ────────────────────────────────────────────────────────────────────
+# 下载策略
+# ────────────────────────────────────────────────────────────────────
+# Canon 官方下载点 gdlp01.c-wss.com 是 CloudFront/AWS S3 后端，UA 检查
+# 不严但偶有 4xx；URL 里的 GDS 路径（/gds/0/0100009240/40/）跟随版本号
+# 变化，升级时需要去 Canon 各国家区下载页（如 https://asia.canon/en/support/0100924010）
+# 的 "Download" 按钮里抓最新 URL（点击后浏览器抓 redirect 即可）。
+# fail-fast：下载或 dpkg 任一步失败立即非零退出，避免发布镜像里缺少
+# UFR II 驱动却静默成功（与 escpr2 / epson-cn 同策略）。
+# 升级版本时同步更新下方 CANON_UFR2_VERSION / CANON_UFR2_DEB_VERSION /
+# CANON_UFR2_TARBALL / CANON_UFR2_URL 四个变量。
+
+set -eo pipefail
+
+# ────────────────────────────────────────────────────────────────────
+# 架构判断 → 选择 tarball 内的子目录与 .deb 名
+# ────────────────────────────────────────────────────────────────────
+ARCH="$(dpkg --print-architecture)"
+case "${ARCH}" in
+    amd64)
+        CANON_UFR2_DEB_SUBDIR="x64/Debian"
+        CANON_UFR2_DEB_ARCH="amd64"
+        ;;
+    arm64)
+        CANON_UFR2_DEB_SUBDIR="ARM64/Debian"
+        CANON_UFR2_DEB_ARCH="arm64"
+        ;;
+    *)
+        echo "[canon-ufr2] skip: arch=${ARCH} (Canon UFR II driver has no ${ARCH} binary; supported: amd64/arm64)"
+        exit 0
+        ;;
+esac
+
+# ────────────────────────────────────────────────────────────────────
+# 配置（升级版本时同步更新这一组）
+# ────────────────────────────────────────────────────────────────────
+CANON_UFR2_VERSION="6.30"
+CANON_UFR2_DEB_VERSION="6.30-1.07"
+CANON_UFR2_TARBALL="linux-UFRII-drv-v630-m17n-07.tar.gz"
+CANON_UFR2_URL="https://gdlp01.c-wss.com/gds/0/0100009240/40/${CANON_UFR2_TARBALL}"
+CANON_UFR2_UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+CANON_UFR2_DEB_NAME="cnrdrvcups-ufr2-uk_${CANON_UFR2_DEB_VERSION}_${CANON_UFR2_DEB_ARCH}.deb"
+
+# ────────────────────────────────────────────────────────────────────
+# 下载 & 解压 & dpkg
+# ────────────────────────────────────────────────────────────────────
+BUILD_DIR="$(mktemp -d /tmp/canon-ufr2.XXXXXX)"
+trap 'rm -rf "${BUILD_DIR}"' EXIT
+
+cd "${BUILD_DIR}"
+
+echo "[canon-ufr2] arch=${ARCH} → ${CANON_UFR2_DEB_SUBDIR}/${CANON_UFR2_DEB_NAME}"
+echo "[canon-ufr2] downloading ${CANON_UFR2_URL}"
+wget --tries=3 --timeout=60 --retry-connrefused \
+     --user-agent="${CANON_UFR2_UA}" \
+     -O "${CANON_UFR2_TARBALL}" "${CANON_UFR2_URL}"
+
+# tarball 顶层目录名跟随版本号变化（如 linux-UFRII-drv-v630-m17n/），
+# 用 --strip-components=1 把第一层目录剥掉，统一展开到 src/ 下，
+# 避免后续路径里再写一遍版本号。
+mkdir -p src
+tar xzf "${CANON_UFR2_TARBALL}" -C src --strip-components=1
+
+# 用 find 兜底实际路径：Canon 偶尔会调整子目录大小写或层级，find 比
+# 硬编码 src/${SUBDIR}/${DEB} 更稳。同时也方便诊断（找不到时打印 layout）。
+DEB_PATH="$(find src -type f -name "${CANON_UFR2_DEB_NAME}" -print -quit 2>/dev/null || true)"
+
+if [ -z "${DEB_PATH}" ]; then
+    echo "[canon-ufr2] FATAL: deb file not found in tarball"
+    echo "[canon-ufr2]   expected: ${CANON_UFR2_DEB_NAME}"
+    echo "[canon-ufr2]   tarball layout:"
+    find src -maxdepth 4 -type f -name "*.deb" || true
+    exit 1
+fi
+
+echo "[canon-ufr2] installing ${DEB_PATH}"
+
+# dpkg -i 失败时用 apt-get -f install 兜底处理依赖（与 install-epson-cn.sh 同模式）。
+dpkg -i "${DEB_PATH}" || apt-get install -y -f --no-install-recommends
+
+echo "[canon-ufr2] installed Canon UFR II/UFRII LT driver v${CANON_UFR2_VERSION} (${CANON_UFR2_DEB_ARCH})"
+rm -rf /var/lib/apt/lists/*

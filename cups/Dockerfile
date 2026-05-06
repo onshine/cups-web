@@ -127,6 +127,16 @@ RUN /tmp/build-scripts/install-gutenprint.sh
 # 详见 scripts/install-epson-cn.sh（UUID/.deb 文件名硬编码在脚本里）
 RUN /tmp/build-scripts/install-epson-cn.sh
 
+# ────────────────────────────────────────────────────────────────────
+# Canon UFR II / UFRII LT 官方驱动（amd64 + arm64）：best-effort 安装。
+# ────────────────────────────────────────────────────────────────────
+# 覆盖 i-SENSYS LBP/MF、imageCLASS、imageRUNNER (iR) 等所有走 UFR II /
+# UFRII LT 协议的 Canon 激光机（issue #34）。Canon 官方 tarball 从 v6.30
+# 起已为 amd64/arm64 提供预编译 .deb；armhf/armel 没有 32-bit ARM 二进制，
+# 由脚本入口判断架构后 skip。
+# 详见 scripts/install-canon-ufr2.sh（tarball URL/.deb 文件名硬编码在脚本里）
+RUN /tmp/build-scripts/install-canon-ufr2.sh
+
 # 构建脚本使命完成，清理临时目录
 RUN rm -rf /tmp/build-scripts
 
