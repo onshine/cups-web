@@ -47,13 +47,39 @@ cd src
 tar xzf ../escpr2.tar.gz --strip-components=1
 autoreconf -fi
 
-# 强制编译器标准回退到 gnu17，避免 C23 把隐式函数声明视为错误
-export CC="gcc -std=gnu17"
-export CXX="g++ -std=gnu17"
+# ──────────────────────────────────────────────────────────────────────
+# 编译选项说明（修复 Debian trixie / GCC 15 上的编译错误）
+# ──────────────────────────────────────────────────────────────────────
+# ESCPR2 源码（Epson 闭源 + 开源混合体）写得相当随意，filter.c / mem.c 里
+# 大量调用 `PrintBand` / `SendStartJob` / `SetupJobAttrib` / `err_system` 等
+# 函数却**没有任何头文件声明**——实际定义在同 .c 里以 `epsPrintBand` /
+# `epsStartJob` 等带前缀的形式存在，编译期 GCC 把它们当作隐式声明的外部函数
+# 处理，依赖链接期符号兜底。
+#
+# 这种代码在 GCC 13 之前只是 warning，但：
+#   ① C23 标准（GCC 15 在 trixie 上的默认 -std）把"隐式函数声明"和"隐式 int"
+#      列为构造错误；
+#   ② Debian trixie GCC 15 还在 default specs 里独立开启了
+#      `-Werror=implicit-function-declaration` / `-Werror=implicit-int`，
+#      所以单纯 `-std=gnu17` 回退语言标准也压不住——必须显式
+#      `-Wno-error=implicit-function-declaration` 把它降级回 warning。
+#
+# AUR 维护的 epson-inkjet-printer-escpr2 PKGBUILD 也是同样思路（CFLAGS
+# 加 -Wno-error=implicit-function-declaration），社区验证过的最小修复。
+#
+# 同时一并加上 `-Wno-error=incompatible-pointer-types`，因为 ESCPR2 内部
+# 有 `unsigned char *` 与 `char *` 互传的老代码，C23 也对这类情况收紧了。
+ESCPR2_CFLAGS="-O2 -std=gnu17 \
+-Wno-error=implicit-function-declaration \
+-Wno-error=implicit-int \
+-Wno-error=incompatible-pointer-types"
+
+export CC="gcc"
+export CXX="g++"
 
 ./configure --prefix=/usr --disable-static \
-    CFLAGS="-O2 -std=gnu17" \
-    CXXFLAGS="-O2 -std=gnu17"
+    CFLAGS="${ESCPR2_CFLAGS}" \
+    CXXFLAGS="-O2 -std=gnu++17"
 make -j"$(nproc)"
 make install
 
