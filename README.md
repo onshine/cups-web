@@ -51,6 +51,33 @@
 - **打印选项**：份数、单双面、彩色/黑白、纸张大小、纸张类型、页面方向、页码范围、缩放、镜像打印
 - **实时预览**：支持 PDF 预览、纸张方向的可视化预览、页数估算
 
+### 内置打印机驱动
+
+`hanxi/cups` 镜像出厂即预装了一批常见品牌的打印机驱动，免去用户在容器里手动 `apt install` 或翻官网下载 `.deb` 的麻烦。除非另行说明，下面列出的驱动都同时覆盖 `linux/amd64` + `linux/arm64` + `linux/arm/v7`（少数厂商无 ARM 二进制的会标注）。
+
+**通用驱动包**（apt 安装）：
+
+- `printer-driver-all`：Debian 维护的驱动 meta 包，包含 splix、c2050、m2300w、ptouch 等数十种小众驱动
+- `printer-driver-cups-pdf`：虚拟 PDF 打印机，无实体打印机也可调试
+- `printer-driver-escpr`：Epson ESC/P-R 标准款（覆盖大部分 Epson 喷墨老机型）
+- `printer-driver-foo2zjs`：ZjStream / Hiperc / OAKT 协议机型（部分 HP / Konica / Minolta 老款激光机）
+- `printer-driver-brlaser`：Brother 老款激光机（HL-L2300D、HL-1110、DCP-7055 等，[issue #32](https://github.com/hanxi/cups-web/issues/32)）
+- `printer-driver-gutenprint`：覆盖 Epson / Canon / HP / Lexmark 等大量老机型；**仅 amd64 / arm64**（trixie armhf 上游未提供 binary）
+- `foomatic-db-compressed-ppds` + `openprinting-ppds`：Foomatic / OpenPrinting 海量 PPD 库
+- `hplip` + `hpijs-ppds` + `hp-ppd`：HP 全系打印/扫描套件（LaserJet、OfficeJet、DeskJet、Envy 等）
+- `ipp-usb` + CUPS 内置 driverless 模型：把 USB 直连的 IPP Everywhere / AirPrint / Mopria 打印机自动识别为网络打印机（新款 Brother DCP-T425W、HP Tango、Canon PIXMA TS 系列等大多走这条路）
+
+**厂商专有驱动**（脚本另行下载/编译）：
+
+| 驱动 | 版本 | 架构覆盖 | 适用机型 |
+| --- | --- | --- | --- |
+| Epson ESC/P-R 2（源码编译） | 1.2.39 | amd64 / arm64 / armv7 | 新款 Epson 喷墨：ET-18100、L8050、L8160、WF-7840 等（含无边距打印，[issue #30](https://github.com/hanxi/cups-web/issues/30)） |
+| Epson 国行专有驱动（`epson-inkjet-printer-201601w` + `epson-printer-utility`） | 1.0.1 / 1.2.2 | **仅 amd64** | Epson 中国区早期机型 L380、L455 等（原厂墨水检测/尺寸预设更完整） |
+| Canon UFR II / UFRII LT 官方驱动（`cnrdrvcups-ufr2-uk`） | 6.30-1.07 | amd64 / arm64 | i-SENSYS LBP/MF、imageCLASS、imageRUNNER (iR)、imagePRESS (iPR) 等所有走 UFR II / UFRII LT 协议的 Canon 激光机（[issue #34](https://github.com/hanxi/cups-web/issues/34)） |
+| 柯尼卡美能达 bizhub 3000MF 黑白激光驱动（`bizhub3000mfpdrvchn`） | 1.0.0-1 | amd64 / arm64 | Konica Minolta bizhub 3000MF 多功能一体机（[issue #35](https://github.com/hanxi/cups-web/issues/35)） |
+
+> 💡 表中标注为「仅 amd64」或「amd64 / arm64」的驱动，在未覆盖的架构（如树莓派 armv7）上会被脚本静默 `skip`，不影响其他驱动的使用。如果你的打印机不在以上列表中，仍可访问 CUPS 管理界面（<http://localhost:631>）通过自带的 PPD 库或上传自定义 PPD 添加。
+
 ### 用户与权限
 
 - **多用户系统**：支持 `admin` / `user` 两种角色
