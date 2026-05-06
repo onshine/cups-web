@@ -20,12 +20,25 @@ if [[ ! "$BUMP_TYPE" =~ ^(major|minor|patch)$ ]]; then
     exit 1
 fi
 
-# 获取最新的 tag
-LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+# 获取最新的语义化版本 tag（仅识别 vX.Y.Z 形式，忽略 cups-driver、latest 等
+# 镜像/驱动维护用的非版本 tag）。
+#
+# 不再使用 `git describe --tags --abbrev=0`：它会返回任意最近的 tag，遇到
+# cups-driver 这种 release tag 会被错误解析成 vcups-driver.cups-driver.1。
+# 改用 `git tag --list 'v*' --sort=-v:refname` 让 git 按版本号语义排序，
+# 再用 grep 严格筛掉 v1.2.3-rc1 等带后缀的 tag，仅保留纯 vMAJOR.MINOR.PATCH。
+LATEST_TAG=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+if [ -z "$LATEST_TAG" ]; then
+    LATEST_TAG="v0.0.0"
+fi
 echo "当前最新 tag: $LATEST_TAG"
 
 # 解析版本号
 VERSION=${LATEST_TAG#v}
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "错误: 最新 tag '$LATEST_TAG' 不是合法的语义化版本号 (vMAJOR.MINOR.PATCH)"
+    exit 1
+fi
 MAJOR=$(echo "$VERSION" | cut -d. -f1)
 MINOR=$(echo "$VERSION" | cut -d. -f2)
 PATCH=$(echo "$VERSION" | cut -d. -f3)
