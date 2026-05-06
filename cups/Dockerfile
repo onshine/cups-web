@@ -59,9 +59,6 @@ RUN apt-get update && \
       lsb-release \
       apt-utils \
       usbutils \
-      # p7zip-full：柯尼卡美能达 bizhub 3000MF 驱动以 .7z 分发（issue #35），
-      # 其他 install-* 脚本用 tar.gz/tar.xz，仅这一家厂商需要 7z 解压。
-      p7zip-full \
       # ── CUPS 打印生态（cups-filters 会拉入 apt 版 cups 作为依赖） ──
       cups-filters \
       cups-client \
@@ -143,10 +140,11 @@ RUN /tmp/build-scripts/install-canon-ufr2.sh
 # ────────────────────────────────────────────────────────────────────
 # 柯尼卡美能达 bizhub 3000MF 黑白激光打印机驱动（amd64 + arm64）：best-effort 安装。
 # ────────────────────────────────────────────────────────────────────
-# issue #35。柯尼卡美能达官方未把 Linux 驱动上传 Debian 仓库，国产化平台
-# （银河麒麟/UOS）发布的 .deb 以 .7z 压缩，由 p7zip-full 解压。
-# loongarch64/mips64el 镜像本身不发布；armhf/armel 厂商无包，由脚本入口 skip。
-# 详见 scripts/install-konica-bizhub.sh（fileId/.deb 文件名硬编码在脚本里）
+# issue #35。原始驱动来自柯尼卡美能达国产化平台（银河麒麟/UOS）的 .7z 包，
+# 已重新打成 tar.gz 上传到本仓库自维护的 GitHub Releases 镜像（与 escpr2
+# 共用 cups-driver tag），脚本走 tar.gz 链路。loongarch64/mips64el 镜像
+# 本身不发布；armhf/armel 厂商无包，由脚本入口 skip。
+# 详见 scripts/install-konica-bizhub.sh（镜像 URL/.deb 文件名硬编码在脚本里）
 RUN /tmp/build-scripts/install-konica-bizhub.sh
 
 # 构建脚本使命完成，清理临时目录

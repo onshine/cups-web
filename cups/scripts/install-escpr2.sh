@@ -24,7 +24,9 @@ set -eo pipefail
 # 配置
 # ────────────────────────────────────────────────────────────────────
 ESCPR2_VERSION="1.2.39"
-ESCPR2_MIRROR_URL="https://github.com/hanxi/cups-web/releases/download/vescpr2-1.2.39/epson-inkjet-printer-escpr2-1.2.39-1.tar.gz"
+# 镜像 release tag 统一为 cups-driver，多个第三方驱动 tarball 共用一个 release，
+# 升级版本时上传新 tarball 到同一 release，无需创建新 tag。
+ESCPR2_MIRROR_URL="https://github.com/hanxi/cups-web/releases/download/cups-driver/epson-inkjet-printer-escpr2-1.2.39-1.tar.gz"
 
 # ────────────────────────────────────────────────────────────────────
 # 下载 & 编译
